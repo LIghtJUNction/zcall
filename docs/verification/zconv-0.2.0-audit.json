@@ -1,0 +1,90 @@
+{
+  "archive_sha256": "b2df4342b60d1f96b26342fa0433fa91dee464df9105b2c46c19c2fc39528dc6",
+  "matches_registry_checksum": true,
+  "reference_commit": "b905a764b6e9fe719bf968b1a14e21fdcab77d00",
+  "vcs": {
+    "git": {
+      "sha1": "0eaad6111560d7823511bb3effcd5f7d0354b32e"
+    },
+    "path_in_vcs": ""
+  },
+  "rust_source_file_count": 13,
+  "different_rust_sources": [],
+  "extra_rust_sources": [],
+  "missing_rust_sources": [],
+  "original_manifest_matches_commit": true,
+  "package": {
+    "edition": "2021",
+    "rust-version": "1.74",
+    "name": "zconv",
+    "version": "0.2.0",
+    "build": false,
+    "include": [
+      "src/**",
+      "examples/**",
+      "tests/**",
+      "benches/**",
+      "README.md",
+      "CHANGELOG.md",
+      "LICENSE-*",
+      "docs/**",
+      "Cargo.toml"
+    ],
+    "autolib": false,
+    "autobins": false,
+    "autoexamples": false,
+    "autotests": false,
+    "autobenches": false,
+    "description": "Zero-dependency, allocation-free AI protocol conversion",
+    "readme": "README.md",
+    "keywords": [
+      "ai",
+      "protocol",
+      "no-std",
+      "openai",
+      "streaming"
+    ],
+    "categories": [
+      "no-std",
+      "parser-implementations",
+      "encoding"
+    ],
+    "license": "MIT OR Apache-2.0",
+    "repository": "https://github.com/LIghtJUNction/zconv"
+  },
+  "features": {
+    "default": []
+  },
+  "dependency_sections": {
+    "dependencies": {},
+    "dev-dependencies": {},
+    "build-dependencies": {},
+    "target": {}
+  },
+  "build_rs_present": false,
+  "lib_header": [
+    "#![no_std]",
+    "#![forbid(unsafe_code)]"
+  ],
+  "archive_source_commit": "0eaad6111560d7823511bb3effcd5f7d0354b32e",
+  "archive_source_commit_matches_reference": false,
+  "source_difference_explanation": "Published VCS commit 0eaad6111560d7823511bb3effcd5f7d0354b32e adds only rust-toolchain.toml (development toolchain 1.99.1), verified via GitHub fetch_commit. All 13 published src/**/*.rs files and Cargo.toml.orig match reviewed b905a764b6e9fe719bf968b1a14e21fdcab77d00 byte-for-byte.",
+  "required_api_presence": {
+    "decode_frame_format": true,
+    "validate_stream_format": true,
+    "UsageAccumulator": true,
+    "Event.item_id": true,
+    "Error.ScratchTooSmall": true,
+    "typed_finish_fix": true,
+    "empty_responses_item_fix": true
+  },
+  "audit_result": "PASS: registry artifact contains the reviewed source and required API, with independently identified publication VCS commit.",
+  "archive_tests": {
+    "rust": "1.74.0",
+    "command": "cargo +1.74.0 test --test frame --test typed --offline",
+    "frame_tests_passed": 9,
+    "typed_tests_passed": 3,
+    "failed": 0,
+    "warning": "Cargo 1.74 reports package.autolib as an unused manifest key; compilation and tests succeed."
+  }
+}

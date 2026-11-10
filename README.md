@@ -15,10 +15,11 @@ retries, scheduling, conversation history, tool execution and agent decisions.
 zcall = { git = "https://github.com/LIghtJUNction/zcall", branch = "main", default-features = false }
 ```
 
-The current development dependency is the exact zconv commit recorded in
-`Cargo.toml`. Registry publication checks that the required zconv version is
-available on crates.io, replaces the development Git pin with the exact registry
-version, and tests the resulting package before publishing.
+The library pins the published `zconv = "=0.2.0"` with default features disabled.
+Its dependency graph contains only zcall and zconv. The Git installation above
+works before zcall's own first registry publication. The release workflow checks
+the actual registry dependency, package, name ownership and version before
+publishing; it never ships a Git-only or path-only dependency.
 
 ```rust
 use zcall::v1::*;

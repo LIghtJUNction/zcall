@@ -12,7 +12,7 @@ categories = ["no-std", "api-bindings", "parser-implementations"]
 include = ["src/**", "tests/**", "examples/**", "benches/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-*", "Cargo.toml", "Cargo.lock"]
 
 [dependencies]
-zconv = { version = "=0.2.0", default-features = false, git = "https://github.com/LIghtJUNction/zconv", rev = "b905a764b6e9fe719bf968b1a14e21fdcab77d00" }
+zconv = { version = "=0.2.0", default-features = false }
 
 [dev-dependencies]
 

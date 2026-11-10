@@ -1,0 +1,10 @@
+workload,input_bytes,iterations,median_ns,min_ns,max_ns,mib_per_s
+zcall_ir_small_request,111,20000,4439.43,4039.95,4809.18,23.84
+zconv_ir_small_request,111,20000,4314.93,3860.25,4580.91,24.53
+zcall_ir_unicode_request,1783,20000,6092.81,5871.38,6210.86,279.08
+zconv_ir_unicode_request,1783,20000,6157.18,5698.08,6425.71,276.17
+zcall_tool_request,513,20000,7847.97,7710.01,8421.82,62.34
+zcall_response_view,229,20000,3756.29,3592.62,3805.90,58.14
+zcall_session_fragment_309,309,5001,7919.66,7734.55,9345.13,37.21
+zcall_session_fragment_16,309,5001,8965.38,8175.32,9257.58,32.87
+zcall_session_fragment_1,309,5001,12255.88,11612.85,12864.06,24.04

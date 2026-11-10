@@ -1,0 +1,81 @@
+Command: cargo +nightly miri test --locked --test document --test session --test capability
+Dependency: zconv Git b905a764; all 13 production Rust sources are byte-identical to registry 0.2.0.
+Exit status: 0
+running 22 tests
+test a_context_loss_permission_does_not_remove_a_retained_context_requirement ... ok
+test a_loss_permission_does_not_remove_same_source_extension_requirements ... ok
+test accepting_a_condition_does_not_override_unknown_or_unsupported_evidence ... ok
+test actual_parameter_rejection_is_an_input_diagnostic ... ok
+test conditional_evidence_needs_explicit_acceptance ... ok
+test context_supplied_output_budget_cannot_bypass_model_limits ... ok
+test every_explicit_generation_control_including_null_is_required ... ok
+test explicit_uncertainty_is_reported_per_layer ... ok
+test explicit_zero_and_large_integer_limits_are_compared_exactly ... ok
+test explicit_zero_limit_and_overflow_are_rejected ... ok
+test limits_and_named_levels_require_attributed_evidence ... ok
+test missing_output_count_is_unknown_and_never_assumed_zero ... ok
+test named_reasoning_requires_the_feature_and_empty_known_levels_are_unsupported ... ok
+test preparation_reserves_an_input_report_before_encoding ... ok
+test prepare_checks_actual_request_before_send ... ok
+test protocol_expression_does_not_claim_an_unwired_stream_adapter ... ok
+test request_and_response_adapter_operations_are_independent ... ok
+test requested_budget_overrides_context_and_null_does_not_use_context ... ok
+test standalone_adapter_conditions_are_explicit_then_prepare_verifies_the_shape ... ok
+test unknown_is_never_implicit_support ... ok
+test unknown_protocol_versions_and_duplicate_evidence_fail ... ok
+test zero_report_recovers_and_needed_is_exact ... ok
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.48s
+running 25 tests
+test all_25_modern_tool_request_directions_are_connected ... ok
+test all_25_modern_tool_response_directions_preserve_action_requirement ... ok
+test all_36_request_directions_preserve_uniform_business_view ... ok
+test all_36_response_directions_preserve_ordered_contents ... ok
+test builder_rejects_invalid_edits_and_rolls_back_capacity_failures ... ok
+test building_requests_uses_actual_storage_and_can_switch_all_backends ... ok
+test building_responses_uses_real_choices_and_caller_facts ... ok
+test capacity_failures_are_precise_retryable_and_transactional ... ok
+test changing_incomplete_choice_clears_stale_provider_snapshot ... ok
+test complete_tool_arguments_are_validated_even_for_same_format ... ok
+test edits_keep_message_markers_coherent_and_reject_bad_types ... ok
+test explicit_finish_edits_change_encoded_status_and_keep_cancellation_distinct ... ok
+test file_ids_audio_and_safety_remain_typed ... ok
+test malformed_inputs_are_not_upstream_failures_or_panics ... ok
+test missing_null_empty_and_zero_stay_distinct ... ok
+test multiple_candidates_and_separate_identity_namespaces ... ok
+test new_extensions_preserve_existing_records_and_are_reported_individually ... ok
+test opaque_signatures_are_visible_and_cross_provider_transfer_is_strict ... ok
+test provider_owned_extensions_context_and_signatures_do_not_leak ... ok
+test refusal_history_cannot_silently_become_ordinary_text ... ok
+test replacing_storage_in_place_preserves_edits_after_failure_and_growth ... ok
+test strict_tool_defaults_are_inherited_and_can_be_explicitly_edited ... ok
+test structured_output_and_media_keep_source_namespaces ... ok
+test tool_result_linkage_is_checked_before_mutation ... ok
+test usage_integers_and_cache_arithmetic_are_preserved ... ok
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 94.17s
+running 25 tests
+test active_choice_must_finish_and_tool_arguments_must_be_an_object ... ok
+test aggregation_growth_at_tool_completion_retains_committed_fragments ... ok
+test arbitrary_input_and_duplicate_fields_never_panic_or_spin ... ok
+test cancellation_intent_confirmation_and_transport_failure_are_distinct ... ok
+test crlf_and_utf8_escapes_can_split_at_any_byte_including_terminal_crlf ... ok
+test cumulative_cache_and_thinking_updates_never_add_prior_totals_twice ... ok
+test empty_responses_message_has_a_real_lifecycle_and_no_fabricated_delta ... ok
+test encoder_zero_buffers_recover_atomically_and_zero_output_backpressures ... ok
+test eof_duplicate_termination_and_invalid_event_names_have_stable_errors ... ok
+test exact_item_id_loss_is_explicit_in_reverse_event_encoding ... ok
+test final_snapshots_are_verified_without_appending_again ... ok
+test gemini_missing_ids_bind_source_positions_before_normalizing_item_indices ... ok
+test interleaved_tools_are_executable_once_and_results_are_linked_by_id ... ok
+test late_real_identity_is_observable_and_encoder_rechecks_caller_context ... ok
+test malformed_completed_arguments_never_become_ready_but_truncation_is_incomplete ... ok
+test one_extension_permission_does_not_authorize_cache_write_loss ... ok
+test reasoning_summary_is_typed_and_never_translated_into_a_thought ... ok
+test same_gemini_part_index_in_later_frames_is_a_new_tool_with_its_own_id ... ok
+test six_real_adapters_feed_identical_harness_code_under_every_byte_split ... ok
+test tool_call_context_is_required_and_never_invented ... ok
+test tool_event_encoding_preserves_ids_and_complete_arguments ... ok
+test uniform_events_encode_to_all_six_targets_with_one_byte_output ... ok
+test unknown_metadata_requires_explicit_field_permission_and_reports_its_name ... ok
+test upstream_error_is_a_terminal_event_not_a_json_failure ... ok
+test zero_capacity_regions_recover_without_replaying_accepted_events ... ok
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 479.16s

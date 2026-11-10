@@ -9,7 +9,9 @@ version tag can trigger the same gates.
 
 1. Resolve the exact required zconv version from crates.io. A development Git
    pin is removed only after the registry check, then the registry lockfile is
-   generated with Rust 1.74 and the full tests run against it.
+   generated with Rust 1.74 and the full tests run against it. Existing standalone
+   fuzz/comparison locks receive the verified zconv registry entry while keeping
+   their other dependency versions and checksums.
 2. Validate version input without interpolating it into shell code. Reject
    malformed versions, decreases, conflicting bump/explicit inputs and tag
    mismatches. Preserve a v3 lockfile usable by the MSRV.
@@ -19,7 +21,8 @@ version tag can trigger the same gates.
    Repeat the registry check immediately before publication.
 5. Verify the checkout SHA and current main head. An old manual run cannot
    publish source after main has advanced. An existing tag must point at the
-   verified source with the prepared version changes included.
+   verified source with the prepared version changes included and must be part
+   of main's history.
 6. Publish with `CARGO_REGISTRY_TOKEN`, then record the version, tag and GitHub
    release. No token is used in tests, exposed in logs or passed to an untrusted
    pull-request workflow.
@@ -37,10 +40,15 @@ never cancelled by a newer release.
 
 ## Required dependency release
 
-The corresponding zconv 0.2.0 changes are committed separately. Publish that
-version with zconv's own Release workflow (`bump=none`, `publish=true`) before
-publishing zcall 0.1.0. The zcall dependency gate verifies the actual registry
-result and builds it; a Git tag alone does not satisfy the gate.
+The required zconv 0.2.0 is published, independently audited and resolved in the
+final lockfile. For a future dependency bump, publish the required zconv version
+before zcall. The dependency gate verifies the actual registry result and builds
+it; a Git tag alone does not satisfy the gate.
+
+Use the manual main-branch workflow for the first zcall publication. It commits
+the verified registry manifest and all affected lockfiles before recording the
+release tag. A pre-created tag over the development Git manifest intentionally
+fails the source-consistency check.
 
 For local review:
 
@@ -53,5 +61,5 @@ cargo package --locked --allow-dirty
 cargo publish --dry-run --locked --allow-dirty
 ```
 
-The first command deliberately fails while the required registry version is
-unavailable. Development builds use the pinned source and remain testable.
+The first command fails if the required registry version is unavailable. It
+passed for the pinned zconv 0.2.0 during this implementation's validation.

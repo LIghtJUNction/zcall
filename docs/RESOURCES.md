@@ -11,6 +11,11 @@ size; record storage contains the actual zconv IR. An input can outlive the toke
 tape, because retained JSON/text values borrow only the original bytes. Reusing
 records requires dropping their live views first.
 
+For a live edited document, `replace_storage` grows its record store in place.
+If the consuming `relocate` alternative fails, `RelocationError::original`
+returns the original document together with its capacity error; prior edits and
+the usable handle are retained. A failed growth attempt does not discard work.
+
 | Region | Meaning | Needed value | Retry rule |
 |---|---|---|---|
 | Tokens | JSON token tape | Lower bound at the failing token | Retry the document, or replace stream workspace and keep the unconsumed suffix |

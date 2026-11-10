@@ -14,9 +14,10 @@ name/repository/owner/version checks immediately before publication.
 
 ## Required upstream integration
 
-zcall depends on zconv 0.2.0 at commit
-`b905a764b6e9fe719bf968b1a14e21fdcab77d00` during development. It includes these
-independent upstream improvements, tested in zconv before zcall uses them:
+Development used zconv 0.2.0 at commit
+`b905a764b6e9fe719bf968b1a14e21fdcab77d00`. The final manifest pins the actual
+published registry version `=0.2.0`. It includes these independent upstream
+improvements, tested in zconv before zcall uses them:
 
 - `decode_frame_format` shares actual SSE discriminator and terminal marker
   validation with StreamConverter.
@@ -54,9 +55,22 @@ sources, including dependency features and target-specific declarations.
 
 ## Publication state
 
-The development Git pin is intentional until the required version can be
-resolved from crates.io. `scripts/release.py dependency` requires that exact
-unyanked registry version, removes the Git pin, resolves the registry lockfile
-and verifies the dependency graph before release tests and packaging. A missing
-dependency or unavailable registry stops publication; it never publishes a
-Git-only package or silently substitutes 0.1.1.
+The official API was rechecked at 2026-11-10 15:10 UTC. zcall remained available;
+zconv 0.2.0 had been published at 15:01:36 UTC and was unyanked. Its downloaded
+archive matched registry SHA-256
+`b2df4342b60d1f96b26342fa0433fa91dee464df9105b2c46c19c2fc39528dc6`.
+
+The archive records source commit
+`0eaad6111560d7823511bb3effcd5f7d0354b32e`. That later commit only adds the
+upstream repository's development toolchain file, which is outside its published
+include list. All 13 published Rust source files and `Cargo.toml.orig` are
+byte-for-byte identical to the audited b905a764 commit. The published manifest
+declares Rust 1.74, no dependencies and an empty default feature. Both production
+source roots remain `no_std` and forbid unsafe code.
+
+`scripts/release.py dependency` has successfully resolved that registry version,
+removed the development Git pin, synchronized the independent fuzz lock and
+verified the two-package dependency graph. The complete MSRV test suite and
+doctest were then rerun against the registry package. A missing dependency or
+unavailable registry still stops future releases; it never silently substitutes
+another version.

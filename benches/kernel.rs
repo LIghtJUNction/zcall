@@ -259,4 +259,20 @@ fn main() {
         "# session_state_bytes={}",
         core::mem::size_of::<Session<'_, '_>>()
     );
+    println!(
+        "# encoder_workspace_64_4_bytes={}",
+        EncoderWorkspace::<64, 4>::new().memory_bytes()
+    );
+    println!(
+        "# encoder_state_bytes={}",
+        core::mem::size_of::<EventEncoder<'_, '_>>()
+    );
+    println!(
+        "# request_header_bytes={}",
+        core::mem::size_of::<Request<'_, '_>>()
+    );
+    println!(
+        "# response_header_bytes={}",
+        core::mem::size_of::<Response<'_, '_>>()
+    );
 }

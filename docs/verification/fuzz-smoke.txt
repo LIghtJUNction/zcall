@@ -1,0 +1,10 @@
+Command: CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=1 ASAN_OPTIONS=detect_odr_violation=0:detect_leaks=0 cargo +nightly fuzz run kernel fuzz/corpus/kernel -- -max_total_time=30 -runs=5000 -rss_limit_mb=1536 -print_final_stats=1
+Exit status: 0
+LeakSanitizer disabled because the managed sandbox prohibits its process tracing. AddressSanitizer enabled.
+#5000	DONE   cov: 1844 ft: 3338 corp: 177/25Kb lim: 271 exec/s: 5000 rss: 55Mb
+Done 5000 runs in 1 second(s)
+stat::number_of_executed_units: 5000
+stat::average_exec_per_sec:     5000
+stat::new_units_added:          125
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              55

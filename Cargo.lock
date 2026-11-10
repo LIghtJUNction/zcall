@@ -12,4 +12,5 @@ dependencies = [
 [[package]]
 name = "zconv"
 version = "0.2.0"
-source = "git+https://github.com/LIghtJUNction/zconv?rev=b905a764b6e9fe719bf968b1a14e21fdcab77d00#b905a764b6e9fe719bf968b1a14e21fdcab77d00"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2df4342b60d1f96b26342fa0433fa91dee464df9105b2c46c19c2fc39528dc6"
