@@ -1,0 +1,6 @@
+data: {"id":"r","model":"m","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+

@@ -1,0 +1,22 @@
+[package]
+name = "zcall-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+zcall = { path = ".." }
+
+[[bin]]
+name = "kernel"
+path = "fuzz_targets/kernel.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

@@ -1,0 +1,38 @@
+[package]
+name = "zcall"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Allocation-free, protocol-independent Sans-I/O AI call kernel"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/LIghtJUNction/zcall"
+readme = "README.md"
+keywords = ["ai", "no-std", "sans-io", "streaming", "protocol"]
+categories = ["no-std", "api-bindings", "parser-implementations"]
+include = ["src/**", "tests/**", "examples/**", "benches/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-*", "Cargo.toml", "Cargo.lock"]
+
+[dependencies]
+zconv = { version = "=0.2.0", default-features = false, git = "https://github.com/LIghtJUNction/zconv", rev = "b905a764b6e9fe719bf968b1a14e21fdcab77d00" }
+
+[dev-dependencies]
+
+[build-dependencies]
+
+[features]
+default = []
+
+[[bench]]
+name = "kernel"
+harness = false
+
+[workspace]
+members = ["."]
+exclude = ["fuzz", "comparison"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1
