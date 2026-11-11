@@ -9,12 +9,12 @@ version tag can trigger the same gates.
 
 1. Resolve the exact required zconv version from crates.io. A development Git
    pin is removed only after the registry check, then the registry lockfile is
-   generated with Rust 1.74 and the full tests run against it. Existing standalone
+   generated with Rust 1.99.1 and the full tests run against it. Existing standalone
    fuzz/comparison locks receive the verified zconv registry entry while keeping
    their other dependency versions and checksums.
 2. Validate version input without interpolating it into shell code. Reject
    malformed versions, decreases, conflicting bump/explicit inputs and tag
-   mismatches. Preserve a v3 lockfile usable by the MSRV.
+   mismatches. Preserve a v4 lockfile usable by the declared MSRV.
 3. Run MSRV and stable tests, documentation examples, formatting, Clippy,
    dependency/source audit, release-script tests and verified Cargo packaging.
 4. Check crates.io name ownership, repository identity and unpublished version.
@@ -56,7 +56,7 @@ For local review:
 python3 scripts/release.py dependency
 BUMP=none python3 scripts/release.py prepare
 python3 scripts/check_package.py
-cargo +1.74.0 test --all-targets --locked
+cargo +1.99.1 test --all-targets --locked
 cargo package --locked --allow-dirty
 cargo publish --dry-run --locked --allow-dirty
 ```

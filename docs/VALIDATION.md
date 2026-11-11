@@ -1,9 +1,10 @@
 # Validation and acceptance evidence
 
-The local acceptance runs passed 73 integration test functions and one README
-doctest on stable Rust 1.99.1 and the declared MSRV, Rust 1.74.0. This record is
-dated 2026-11-10. It separates completed observations, configured CI gates, and
-behavior outside the contract. Pending runs retain their pending status.
+The original 2026-11-10 acceptance passed 73 integration test functions and one
+README doctest on stable Rust 1.99.1 and the **then-declared** MSRV, Rust 1.74.0.
+On 2026-11-11, zcall moved to Edition 2024 and declared Rust 1.99.1 as its new
+minimum compiler. The original observations below remain historical evidence;
+current release requirements and regression checks are recorded separately.
 
 The counts describe test functions. A function may loop over protocols,
 fragments, capacities, or invalid inputs; these iterations are correlated
@@ -49,7 +50,7 @@ provenance check; it does not replace dependency resolution or packaging. See
 | Check | Observed result | Scope of the result |
 |---|---|---|
 | Local Linux, Rust 1.99.1 | Debug and release integration tests passed; README doctest passed. | The tested development source and fixtures. |
-| Local Linux, Rust 1.74.0 | Debug and release integration tests passed; README doctest passed. | Actual execution on the declared MSRV. |
+| Local Linux, Rust 1.74.0 | Debug and release integration tests passed; README doctest passed. | Actual execution on the minimum declared on 2026-11-10, before the Edition 2024 migration. |
 | Registry dependency, Rust 1.74.0 | All-targets tests and doctests passed: 73 integration functions and one README doctest. | A new run using the resolved crates.io dependency. |
 | Registry dependency, Rust 1.99.1 | Release tests passed: 73 integration functions and one README doctest. | A new optimized run using the resolved crates.io dependency. |
 | `wasm32-unknown-unknown` | Library cross-check passed. | Compilation; no browser or WASM runtime execution. |
@@ -60,8 +61,49 @@ provenance check; it does not replace dependency resolution or packaging. See
 | Local Miri | All 72 selected functions passed: capability 22, document 25, session 25. The session suite took 479.16 seconds. | Used Git commit `b905a764`; its 13 production Rust files match the registry archive. The allocator-hook test is outside the selected Miri suites. |
 | Local libFuzzer smoke | 5,000 executions completed without a reported crash. | The bounded, instrumented run described in section 3. |
 | Published zconv archive | SHA-256 and all 13 Rust source files verified. | Registry provenance and source equality, separate from the new registry test runs above. |
-| Cargo packaging | `cargo +1.74.0 package --locked --allow-dirty` passed its extracted-package compilation. | Actual crates.io zconv dependency; independent tooling excluded. |
-| Publication dry-run | `cargo publish --dry-run --locked --allow-dirty` passed packaging and verification, then stopped before upload. | No crate was published by this command. The normalized manifest has only exact registry zconv 0.2.0 and a v3 two-package lockfile. |
+| Cargo packaging | `cargo +1.74.0 package --locked --allow-dirty` passed its extracted-package compilation. | 2026-11-10 artifact, before the compiler/edition upgrade; independent tooling excluded. |
+| Publication dry-run | `cargo publish --dry-run --locked --allow-dirty` passed packaging and verification, then stopped before upload. | 2026-11-10 artifact: only exact registry zconv 0.2.0 and a v3 two-package lockfile. |
+
+### Rust 1.99.1 / Edition 2024 migration (2026-11-11)
+
+The required compiler is now Rust 1.99.1, which was the newest stable point
+release on this date. The root `Cargo.toml` uses Edition 2024, the committed
+`rust-toolchain.toml` selects 1.99.1, and the root lockfile uses Cargo format
+v4. The isolated fuzz harness also uses Edition 2024. CI checks both the pinned
+minimum and the moving stable channel on each supported desktop OS. The
+release workflow resolves the registry dependency and regenerates lockfiles
+using the declared minimum compiler.
+
+The 2024 match-ergonomics rule required a targeted pattern change in the
+document editing path. That change preserves the same mutable borrow and
+removes an explicit `ref mut` now rejected by Rust 2024. All six adapters and
+the public `v1` contract remain in place; the resolved production dependency
+still consists of zcall and zconv only.
+
+The following checks were executed locally against the new Edition 2024
+source committed as `8288cb9` (and this documentation update):
+
+| Gate | Result | Scope and qualification |
+|---|---|---|
+| `cargo +1.99.1 test --all-targets --locked` | 73 integration functions passed. | Linux, pinned registry dependency, Edition 2024. |
+| `cargo +1.99.1 test --release --locked` | 73 integration functions and one doctest passed. | Optimized build on Linux. |
+| `cargo +1.99.1 test --doc --locked` | One README doctest passed. | The public builder/encoder example compiles and runs. |
+| `cargo +1.99.1 clippy --all-targets --locked -- -D warnings` | Passed. | 2024 match bindings and current Clippy diagnostics addressed. |
+| `cargo +1.99.1 fmt --all -- --check` | Passed. | All library, test, example and bench source. |
+| `python3 scripts/check_package.py` | Passed. | Exactly zcall → zconv; no production `std`, `alloc`, unsafe or build script. |
+| `python3 -m unittest discover -s scripts -p 'test_*.py'` | 26 tests passed. | Release, registry and lockfile safeguards. |
+| WASM, aarch64 and `thumbv7em-none-eabi` | All three cross-target library checks passed. | Compilation on installed targets; runtime behavior was not exercised there. |
+| `cargo +1.99.1 package --locked --allow-dirty` | Passed. | 33 files, package verification compiled after extraction. |
+| `cargo +1.99.1 publish --dry-run --locked --allow-dirty` | Passed. | Verified release archive and dependency; no crates.io upload. |
+| Registry name availability | `zcall` still unoccupied when checked. | Remote crates.io check is time-dependent and repeated by release workflow. |
+| `cargo +1.99.1 bench --bench kernel --locked` | Nine workload measurements completed. | [New CSV](benchmarks/2026-11-11.csv) and [environment](benchmarks/2026-11-11-environment.json); the host CPU differs from the old benchmark. |
+
+The new compiler floor was exercised, rather than only placed in the manifest.
+Rust 1.74.0 remains historical compatibility evidence for the *previous*
+Edition 2021 crate; it is not an MSRV promise for the new source. The prior
+Miri and libFuzzer records also belong to the original source. New remote CI
+provides the migration's independent Miri/fuzz/platform gates once its final
+GitHub workflow run has completed.
 
 Machine-readable [dependency audit](verification/zconv-0.2.0-audit.json),
 [Miri summary](verification/miri-summary.txt) and
@@ -184,7 +226,7 @@ recorded against the relevant commit.
 
 | Gate | Configuration |
 |---|---|
-| Platforms and compilers | Linux, macOS, and Windows; stable and Rust 1.74.0; debug/all-targets, release, and doctest runs. |
+| Platforms and compilers | Linux, macOS, and Windows; latest stable and pinned Rust 1.99.1; debug/all-targets, release, and doctest runs. |
 | Quality and dependency boundaries | Formatting, Clippy with warnings denied, resolved dependency/source audit, all Python release tests, and the quick kernel benchmark. |
 | Cross compilation | Library checks for WASM, aarch64 Linux, and `thumbv7em-none-eabi`. |
 | Miri | Capability, document, and session integration suites, with a 30-minute job limit. |
@@ -203,9 +245,9 @@ The core reproduction commands, from the repository root with the stated
 toolchains installed, are:
 
 ```sh
-cargo +1.74.0 test --all-targets --locked
-cargo +1.74.0 test --release --locked
-cargo +1.74.0 test --doc --locked
+cargo +1.99.1 test --all-targets --locked
+cargo +1.99.1 test --release --locked
+cargo +1.99.1 test --doc --locked
 cargo +stable test --all-targets --locked
 cargo +stable test --release --locked
 cargo +stable test --doc --locked

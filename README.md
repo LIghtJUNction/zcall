@@ -1,7 +1,13 @@
 # zcall
 
 A protocol-independent, caller-buffered AI call kernel for harness software.
-Rust 1.74 · `no_std` · `core` + `zconv` · no allocation · safe Rust · Sans-I/O.
+Rust 1.99.1 · Edition 2024 · `no_std` · `core` + `zconv` · no allocation · safe Rust · Sans-I/O.
+
+The repository pins [Rust 1.99.1](https://blog.rust-lang.org/releases/latest/),
+the latest stable release verified on 2026-11-11, as its development toolchain
+and declared minimum compiler. This raises zcall's former 1.74 minimum; the
+published zconv dependency retains its
+own separate Rust 1.74 declaration.
 
 `zcall::v1` gives a harness ordered requests, borrowed complete responses, unified
 stream events, explicit capabilities and a model-turn state machine. `zconv`
@@ -95,7 +101,7 @@ Loss permissions are narrow and accompanied by inspectable field-level reports.
 
 ```sh
 cargo test --all-targets --locked
-cargo +1.74.0 test --all-targets --locked
+cargo +1.99.1 test --all-targets --locked
 cargo clippy --all-targets --locked -- -D warnings
 python3 scripts/check_package.py
 python3 -m unittest discover -s scripts -p 'test_*.py'

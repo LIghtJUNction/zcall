@@ -1,5 +1,54 @@
 # Performance and memory measurements
 
+## Rust 1.99.1 / Edition 2024 run (2026-11-11)
+
+The Edition 2024 migration was benchmarked on production-source commit
+[`8288cb9`](https://github.com/LIghtJUNction/zcall/commit/8288cb9b80e59ca112d717ba68fa9ec70382c6a4),
+using Rust 1.99.1 and the published zconv 0.2.0 dependency. This run used an
+**AMD EPYC 9V74** host with nine logical CPUs exposed. The older run below used
+an **Intel Xeon Platinum 8573C** host. Consequently, the differences between
+dates cannot be attributed to a Rust edition change or a code optimization.
+
+Both paired request workloads inspect their actual parsed IR before encoding.
+The zconv baseline checks the same message count and produces byte-identical
+output. Each row reports the median of seven per-sample means, with 20,000
+iterations per document sample and 5,001 per stream sample, after warmup.
+The input throughput figures include parsing, encoding, and the stated harness
+work; they are not model inference throughput.
+
+| Workload | Input bytes | Median µs | Sample mean range µs | Input MiB/s |
+|---|---:|---:|---:|---:|
+| zcall: small request, inspect IR, encode | 111 | 3.07 | 2.46–3.93 | 34.47 |
+| zconv: same small IR conversion | 111 | 2.90 | 2.42–4.79 | 36.48 |
+| zcall: Unicode request, inspect IR, encode | 1,783 | 3.87 | 3.74–5.16 | 439.79 |
+| zconv: same Unicode IR conversion | 1,783 | 3.88 | 3.79–3.97 | 438.60 |
+| zcall: tool request, object validation, encode | 513 | 4.85 | 4.70–5.26 | 100.81 |
+| zcall: complete response decode and content view | 229 | 2.17 | 2.08–2.24 | 100.61 |
+| zcall: stream supplied in one 309-byte fragment | 309 | 5.35 | 5.16–6.37 | 55.03 |
+| zcall: same stream in 16-byte fragments | 309 | 5.45 | 5.29–5.65 | 54.10 |
+| zcall: same stream in one-byte fragments | 309 | 8.04 | 7.79–11.25 | 36.66 |
+
+The small-request median is approximately 5.8% higher than its direct zconv
+baseline in this run; the sample ranges overlap substantially. The Unicode
+medians are within 0.3% of each other. Neither observation establishes a
+statistically reliable relative speed difference. In particular, zcall does
+not omit an IR inspection for the comparison.
+
+The [2026-11-11 CSV](benchmarks/2026-11-11.csv) records the full precision of
+all nine measurements. Its [environment record](benchmarks/2026-11-11-environment.json)
+captures the compiler, edition, commit, CPU, flags, dependency checksum, source
+hashes and caller-owned type sizes. The measured memory sizes match the older
+table below on this x86_64 target; sizes remain architecture and compiler
+dependent.
+
+## Historical Rust 2021 baseline (2026-11-10)
+
+This is the **2026-11-10 baseline**, measured from source commit `be9c04f`
+with Rust 1.99.1 and Edition 2021. On 2026-11-11, the crate adopted Edition
+2024 with Rust 1.99.1 as its declared minimum; that migration must be evaluated
+on its own commit. The archived numbers below retain their original source
+hashes and are not silently relabeled as post-migration results.
+
 The recorded workloads complete in single-digit microseconds for small document
 operations and in 7.92–12.26 microseconds for the same 309-byte streamed model
 turn, depending on fragmentation. These are local kernel measurements, not
@@ -10,7 +59,7 @@ The [CSV](benchmarks/2026-11-10.csv) contains the full run. The
 CPU, flags, dependency checksum, source hashes and measured type sizes. The
 implementation and workload are in [benches/kernel.rs](../benches/kernel.rs).
 
-## Method
+### Method
 
 The run used stable Rust 1.99.1 on x86_64 Linux, with the published zconv 0.2.0
 registry dependency. The managed environment exposed an Intel Xeon Platinum
@@ -33,7 +82,7 @@ equality is asserted before timing. zcall does not bypass IR inspection for this
 comparison. Tool validation, complete responses and stateful streams are reported
 as absolute costs because a codec-only baseline would omit their contract work.
 
-## Results
+### Results
 
 | Workload | Input bytes | Median µs | Sample mean range µs | Input MiB/s |
 |---|---:|---:|---:|---:|

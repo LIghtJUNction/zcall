@@ -1,0 +1,48 @@
+{
+  "recorded_at_utc": "2026-11-11T02:04:31.319734+00:00",
+  "source_commit": "8288cb9b80e59ca112d717ba68fa9ec70382c6a4",
+  "command": "cargo +1.99.1 bench --bench kernel --locked",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1",
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "rust_edition": "2024",
+  "rust_version_declared": "1.99.1",
+  "kernel": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "logical_cpus_exposed": 9,
+  "affinity_pinned": false,
+  "environment_note": "Shared managed Linux environment; CPU frequency and host contention uncontrolled. No competing task-local Cargo build during timed run.",
+  "profile": {
+    "optimization": "Cargo bench default opt-level=3",
+    "lto": "thin",
+    "codegen-units": 1,
+    "target-cpu": "default"
+  },
+  "samples_per_workload": 7,
+  "warmup_iterations": 200,
+  "iterations_per_sample": 20000,
+  "stream_iterations_per_sample": 5001,
+  "zconv_version": "0.2.0",
+  "zconv_source": "crates.io",
+  "zconv_checksum": "b2df4342b60d1f96b26342fa0433fa91dee464df9105b2c46c19c2fc39528dc6",
+  "measured_type_bytes": {
+    "token_128_bytes": 2560,
+    "record_32_bytes": 6912,
+    "stream_workspace_64_8_4_bytes": 4352,
+    "session_state_bytes": 640,
+    "encoder_workspace_64_4_bytes": 1984,
+    "encoder_state_bytes": 1200,
+    "request_header_bytes": 664,
+    "response_header_bytes": 448
+  },
+  "file_sha256": {
+    "src/capability.rs": "4eb920ae67ca6e043d0f6ad238dddc7e6ac74c65063ffc765cb97ab3632013c5",
+    "src/common.rs": "f2529af380d29baa117c858d28eaf9d8b30196d5f03617815bce7348e36fa3fd",
+    "src/document.rs": "efee75e832deeb5f8fd24bbf1e327caf32aff74a94785d18dc71899fafbc650c",
+    "src/lib.rs": "af751b91b7a0a1bbb6a792be1fdb4db69411656bd6c046c0af3b30c1a52c2918",
+    "src/session/encoder.rs": "e08641c401927e702f6ae9e54c176814f99c48c5b5dc7308224c280df0233308",
+    "src/session.rs": "b042d1e9c353141bb5dac5d1fbb82a939dccaffad2819265b948c729f4221485",
+    "benches/kernel.rs": "47b6f69fffd9f656af7047aba4e99e68090eae12fe818ac0dcbe59b608147ef2",
+    "Cargo.toml": "ddf6bfb7e141ea4390521b3cea508470ce39ade80c9a7764dda73daa2e62113d",
+    "Cargo.lock": "c16ecdf7f7d57c46bd77e36c0c360d1936014ac34d49a6b9d8f0aac92b9c1d51"
+  }
+}
