@@ -695,31 +695,39 @@ fn builder_rejects_invalid_edits_and_rolls_back_capacity_failures() {
         &mut storage,
     )
     .unwrap();
-    assert!(builder
-        .message_with(
-            MessageOptions {
-                shape: ContentShape::Null,
-                ..MessageOptions::new(Role::User)
-            },
-            &[Content::text("x")]
-        )
-        .is_err());
+    assert!(
+        builder
+            .message_with(
+                MessageOptions {
+                    shape: ContentShape::Null,
+                    ..MessageOptions::new(Role::User)
+                },
+                &[Content::text("x")]
+            )
+            .is_err()
+    );
     builder.message(Role::User, &[Content::text("x")]).unwrap();
     assert!(builder.message(Role::User, &[Content::text("y")]).is_err());
     let mut request = builder.finish();
     assert_eq!(request.records_used(), 2);
     assert_eq!(collect_text(&request), "x");
-    assert!(request
-        .replace_content(usize::MAX, usize::MAX, Content::text("x"))
-        .is_err());
-    assert!(request
-        .set_tool_strict(usize::MAX, Presence::Value(false))
-        .is_err());
+    assert!(
+        request
+            .replace_content(usize::MAX, usize::MAX, Content::text("x"))
+            .is_err()
+    );
+    assert!(
+        request
+            .set_tool_strict(usize::MAX, Presence::Value(false))
+            .is_err()
+    );
     let mut tokens = TokenStorage::<16>::new();
     let value = Json::parse(b"true", &mut tokens, Limits::default()).unwrap();
-    assert!(request
-        .set_parameter(Parameter::MaxOutputTokens, Presence::Value(value))
-        .is_err());
+    assert!(
+        request
+            .set_parameter(Parameter::MaxOutputTokens, Presence::Value(value))
+            .is_err()
+    );
 }
 
 #[test]
@@ -977,16 +985,18 @@ fn structured_output_and_media_keep_source_namespaces() {
         check.output_constraint().value().unwrap().mode,
         OutputMode::JsonSchema
     );
-    assert!(request
-        .encode(
-            Protocol::AnthropicMessages.into(),
-            &mut [0; 4096],
-            &mut [],
-            &mut tokens,
-            context(),
-            Policy::default()
-        )
-        .is_err());
+    assert!(
+        request
+            .encode(
+                Protocol::AnthropicMessages.into(),
+                &mut [0; 4096],
+                &mut [],
+                &mut tokens,
+                context(),
+                Policy::default()
+            )
+            .is_err()
+    );
 }
 
 #[test]
@@ -1005,16 +1015,18 @@ fn opaque_signatures_are_visible_and_cross_provider_transfer_is_strict() {
     assert!(
         matches!(request.messages().next().unwrap().contents().next().unwrap().content(), Content::Reasoning { signature: Presence::Value(v), .. } if v.eq_str("opaque-signature"))
     );
-    assert!(request
-        .encode(
-            Protocol::OpenAiResponses.into(),
-            &mut [0; 2048],
-            &mut [],
-            &mut tokens,
-            context(),
-            Policy::default()
-        )
-        .is_err());
+    assert!(
+        request
+            .encode(
+                Protocol::OpenAiResponses.into(),
+                &mut [0; 2048],
+                &mut [],
+                &mut tokens,
+                context(),
+                Policy::default()
+            )
+            .is_err()
+    );
     let policy = Policy {
         drop_reasoning: true,
         ..Policy::default()
@@ -1234,9 +1246,11 @@ fn edits_keep_message_markers_coherent_and_reject_bad_types() {
         Content::ToolCall { .. }
     ));
     let fraction = Json::parse(b"1.5", &mut tokens, Limits::default()).unwrap();
-    assert!(request
-        .set_parameter(Parameter::Seed, Presence::Value(fraction))
-        .is_err());
+    assert!(
+        request
+            .set_parameter(Parameter::Seed, Presence::Value(fraction))
+            .is_err()
+    );
     let wrong_stop = Json::parse(b"[1]", &mut tokens, Limits::default()).unwrap();
     request
         .set_parameter(Parameter::Stop, Presence::Value(wrong_stop))

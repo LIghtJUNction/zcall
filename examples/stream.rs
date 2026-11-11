@@ -48,7 +48,7 @@ fn drive(source: Protocol, input: &[u8]) -> Result<(), Error> {
             StepStatus::NeedInput | StepStatus::Done => {}
             StepStatus::NeedEvents => continue,
             StepStatus::NeedBuffer(c) => {
-                return Err(Error::capacity(c.region, c.needed, c.exact, c.replay))
+                return Err(Error::capacity(c.region, c.needed, c.exact, c.replay));
             }
             StepStatus::Failed(error) => return Err(error),
         }

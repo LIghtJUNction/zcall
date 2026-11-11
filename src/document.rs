@@ -831,13 +831,13 @@ impl<'a, 's> Request<'a, 's> {
         if self.tools().any(|v| texts_equal(v.name, tool.name)) {
             return Err(Error::invalid("tool name", "duplicate tool definition"));
         }
-        if let Presence::Value(schema) = tool.parameters {
-            if schema.kind() != JsonKind::Object {
-                return Err(Error::invalid(
-                    "tool parameters",
-                    "expected a JSON schema object",
-                ));
-            }
+        if let Presence::Value(schema) = tool.parameters
+            && schema.kind() != JsonKind::Object
+        {
+            return Err(Error::invalid(
+                "tool parameters",
+                "expected a JSON schema object",
+            ));
         }
         let slot = self.records.get_mut(self.used).ok_or_else(|| {
             Error::capacity(
@@ -936,7 +936,7 @@ impl<'a, 's> Request<'a, 's> {
     pub fn set_tool_strict(&mut self, tool: usize, value: Presence<bool>) -> Result<(), Error> {
         let mut ordinal = 0;
         for record in &mut self.records[..self.used] {
-            if let ir::Record::Tool(ref mut slot) = record {
+            if let ir::Record::Tool(slot) = record {
                 if ordinal == tool {
                     slot.strict = value.into_raw();
                     return Ok(());
@@ -1034,21 +1034,21 @@ impl<'a, 's> Request<'a, 's> {
             return Err(Error::unsupported("refusal in request history"));
         }
         validate_tool_arguments(&self.records[..self.used], scratch, &mut tokens.inner)?;
-        if let ir::Presence::Value(stop) = self.head.parameters.stop {
-            if stop.kind() == zconv::json::Kind::Array {
-                let document = zconv::json::parse(
-                    stop.raw(),
-                    &mut tokens.inner,
-                    zconv::json::Limits::default(),
-                )
-                .map_err(Error::from)?;
-                if document
-                    .root()
-                    .array()
-                    .any(|v| v.kind() != zconv::json::Kind::String)
-                {
-                    return Err(Error::invalid("stop", "expected an array of strings"));
-                }
+        if let ir::Presence::Value(stop) = self.head.parameters.stop
+            && stop.kind() == zconv::json::Kind::Array
+        {
+            let document = zconv::json::parse(
+                stop.raw(),
+                &mut tokens.inner,
+                zconv::json::Limits::default(),
+            )
+            .map_err(Error::from)?;
+            if document
+                .root()
+                .array()
+                .any(|v| v.kind() != zconv::json::Kind::String)
+            {
+                return Err(Error::invalid("stop", "expected an array of strings"));
             }
         }
         let raw = self.head.view(&mut self.records[..self.used]);
@@ -1370,16 +1370,16 @@ impl<'a> Iterator for Extensions<'_, 'a> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(record) = self.records.get(self.at) {
             self.at += 1;
-            if let ir::Record::Extension(v) = record {
-                if self.owner.map_or(true, |owner| owner == v.owner) {
-                    return Some(Extension {
-                        source: Format::from_raw(v.source),
-                        name: Text(ir::Text::Json(v.key)),
-                        value: Json(v.value),
-                        scope: v.location,
-                        location: location_for(self.records, v.owner),
-                    });
-                }
+            if let ir::Record::Extension(v) = record
+                && self.owner.is_none_or(|owner| owner == v.owner)
+            {
+                return Some(Extension {
+                    source: Format::from_raw(v.source),
+                    name: Text(ir::Text::Json(v.key)),
+                    value: Json(v.value),
+                    scope: v.location,
+                    location: location_for(self.records, v.owner),
+                });
             }
         }
         None
@@ -1811,16 +1811,16 @@ impl<'a, 's> Response<'a, 's> {
     pub fn set_choice_finish(&mut self, index: u64, finish: Finish) -> Result<(), Error> {
         let single = self.choices().count() == 1;
         for record in &mut self.records[..self.used] {
-            if let ir::Record::Choice(choice) = record {
-                if choice.index == index {
-                    choice.finish = finish.raw();
-                    choice.raw_finish = ir::Presence::Missing;
-                    if single {
-                        self.head.status = finish.raw();
-                        self.head.incomplete_details = ir::Presence::Missing;
-                    }
-                    return Ok(());
+            if let ir::Record::Choice(choice) = record
+                && choice.index == index
+            {
+                choice.finish = finish.raw();
+                choice.raw_finish = ir::Presence::Missing;
+                if single {
+                    self.head.status = finish.raw();
+                    self.head.incomplete_details = ir::Presence::Missing;
                 }
+                return Ok(());
             }
         }
         Err(Error::invalid("choice index", "unknown candidate index"))
@@ -2323,13 +2323,13 @@ fn validate_content(role: Role, content: Content<'_>) -> Result<(), Error> {
             }
             match arguments {
                 Data::Json(value) if value.kind() != JsonKind::Object => {
-                    return Err(Error::invalid("tool arguments", "expected a JSON object"))
+                    return Err(Error::invalid("tool arguments", "expected a JSON object"));
                 }
                 Data::Text(_) => {
                     return Err(Error::invalid(
                         "tool arguments",
                         "ordinary text is not JSON arguments",
-                    ))
+                    ));
                 }
                 _ => {}
             }
@@ -2338,13 +2338,13 @@ fn validate_content(role: Role, content: Content<'_>) -> Result<(), Error> {
             return Err(Error::invalid(
                 "tool result",
                 "tool results require a user or tool role",
-            ))
+            ));
         }
         Content::Reasoning { .. } | Content::Refusal(_) if role != Role::Assistant => {
             return Err(Error::invalid(
                 "assistant content",
                 "reasoning and refusal require the assistant role",
-            ))
+            ));
         }
         _ => {}
     }
@@ -2430,7 +2430,7 @@ fn validate_tool_arguments(
                 return Err(Error::invalid(
                     "tool arguments",
                     "expected a complete JSON object",
-                ))
+                ));
             }
         }
     }

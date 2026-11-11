@@ -6,7 +6,8 @@ import subprocess
 import tomllib
 
 root = tomllib.loads(Path('Cargo.toml').read_text())
-assert root['package']['rust-version'] == '1.74'
+assert root['package']['rust-version'] == '1.99.1'
+assert root['package']['edition'] == '2024'
 assert set(root.get('dependencies', {})) == {'zconv'}
 dependency = root['dependencies']['zconv']
 assert dependency.get('default-features') is False

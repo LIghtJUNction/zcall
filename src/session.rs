@@ -783,7 +783,7 @@ impl<'a, 'c> Session<'a, 'c> {
                 return Err(Error::invalid(
                     "workspace replacement",
                     "region is not byte storage",
-                ))
+                ));
             }
         };
         if buffer.len() < used {
@@ -864,10 +864,10 @@ impl<'a, 'c> Session<'a, 'c> {
                 self.terminal_emitted = true;
                 self.local_terminal = false;
             }
-            if let Some(error) = self.failure {
-                if self.terminal_emitted {
-                    break StepStatus::Failed(error);
-                }
+            if let Some(error) = self.failure
+                && self.terminal_emitted
+            {
+                break StepStatus::Failed(error);
             }
             if self.decoded && self.event_at < self.event_count {
                 if !self.applied {
@@ -934,10 +934,10 @@ impl<'a, 'c> Session<'a, 'c> {
                     if terminal {
                         self.terminal_emitted = true;
                     }
-                    if self.events[self.event_at].kind == wire::EventKind::ToolComplete {
-                        if let Some(slot) = self.current_item {
-                            self.items[slot].ready_emitted = true;
-                        }
+                    if self.events[self.event_at].kind == wire::EventKind::ToolComplete
+                        && let Some(slot) = self.current_item
+                    {
+                        self.items[slot].ready_emitted = true;
                     }
                 }
                 self.event_at += 1;
@@ -1000,7 +1000,7 @@ impl<'a, 'c> Session<'a, 'c> {
             }
             match progress.status {
                 sse::Status::NeedBuffer { needed } => {
-                    break capacity(Resource::Framing, needed, false)
+                    break capacity(Resource::Framing, needed, false);
                 }
                 sse::Status::Event => {
                     let Some(frame) = self.framer.event() else {
@@ -1013,7 +1013,7 @@ impl<'a, 'c> Session<'a, 'c> {
                             continue;
                         }
                         Err(zconv::Error::OutputTooSmall { needed }) => {
-                            break capacity(Resource::Payload, needed, true)
+                            break capacity(Resource::Payload, needed, true);
                         }
                         Err(error) => {
                             self.fail(Error::from(error));
@@ -1291,15 +1291,14 @@ impl<'a, 'c> Engine<'a, 'c> {
                         return Err(Error::lifecycle("response start", "duplicate start event"));
                     }
                     for (provided, stored) in [(id, self.state.id), (model, self.state.model)] {
-                        if let Some(provided) = provided {
-                            if stored.present
-                                && !text_equals(provided, bytes(self.aggregate, stored))
-                            {
-                                return Err(Error::invalid(
-                                    "response identity",
-                                    "identity changed during a turn",
-                                ));
-                            }
+                        if let Some(provided) = provided
+                            && stored.present
+                            && !text_equals(provided, bytes(self.aggregate, stored))
+                        {
+                            return Err(Error::invalid(
+                                "response identity",
+                                "identity changed during a turn",
+                            ));
                         }
                     }
                     if raw.created.is_some()
@@ -1579,7 +1578,7 @@ impl<'a, 'c> Engine<'a, 'c> {
     fn lookup(&self, key: EventKey, kind: Option<BlockType>) -> Option<usize> {
         self.items[..self.state.item_count]
             .iter()
-            .position(|item| item.key == key && kind.map_or(true, |kind| kind == item.kind))
+            .position(|item| item.key == key && kind.is_none_or(|kind| kind == item.kind))
     }
     fn binding(&self, key: EventKey) -> Option<Text<'c>> {
         self.config

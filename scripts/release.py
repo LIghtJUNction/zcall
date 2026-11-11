@@ -140,8 +140,8 @@ def prepare():
         if count != 1:
             raise ValueError('expected one package version field')
         path.write_text(data)
-        # MSRV writes lockfile v3; newer cargo would create a lockfile unusable by 1.74.
-        subprocess.run(['cargo', '+1.74.0', 'generate-lockfile', '--offline'], check=True)
+        # Generate with the declared MSRV; Cargo 1.99.1 supports the v4 lockfile.
+        subprocess.run(['cargo', '+1.99.1', 'generate-lockfile', '--offline'], check=True)
         for path, data in lock_updates.items():
             path.write_text(data)
     output = os.getenv('GITHUB_OUTPUT')
@@ -254,9 +254,9 @@ def dependency():
         if matched != 1:
             raise ValueError('expected one single-line zconv dependency')
         path.write_text(''.join(lines))
-    subprocess.run(['cargo', '+1.74.0', 'generate-lockfile'], check=True)
+    subprocess.run(['cargo', '+1.99.1', 'generate-lockfile'], check=True)
     resolved = json.loads(subprocess.check_output(
-        ['cargo', '+1.74.0', 'metadata', '--locked', '--format-version', '1'], text=True))
+        ['cargo', '+1.99.1', 'metadata', '--locked', '--format-version', '1'], text=True))
     dependencies = [p for p in resolved['packages'] if p['name'] == 'zconv']
     if len(dependencies) != 1 or dependencies[0]['version'] != version:
         raise ValueError('unexpected resolved zconv version')

@@ -74,14 +74,16 @@ fn zero_report_recovers_and_needed_is_exact() {
     let c = a.outcome.unwrap_err().capacity.unwrap();
     assert_eq!((c.region, c.needed, c.exact), (Resource::Reports, 4, true));
     let mut out = [Diagnostic::EMPTY; 4];
-    assert!(check_capabilities(
-        endpoint(&TEXT, &TEXT),
-        r,
-        CapabilityPolicy::default(),
-        &mut out
-    )
-    .outcome
-    .is_ok());
+    assert!(
+        check_capabilities(
+            endpoint(&TEXT, &TEXT),
+            r,
+            CapabilityPolicy::default(),
+            &mut out
+        )
+        .outcome
+        .is_ok()
+    );
 }
 #[test]
 fn explicit_zero_limit_and_overflow_are_rejected() {
@@ -146,17 +148,19 @@ fn conditional_evidence_needs_explicit_acceptance() {
         .kind,
         ErrorKind::CapabilityUnknown
     );
-    assert!(check_capabilities(
-        endpoint(&claims, &TEXT),
-        req,
-        CapabilityPolicy {
-            accept_unverified_conditions: true,
-            ..Default::default()
-        },
-        &mut report
-    )
-    .outcome
-    .is_ok());
+    assert!(
+        check_capabilities(
+            endpoint(&claims, &TEXT),
+            req,
+            CapabilityPolicy {
+                accept_unverified_conditions: true,
+                ..Default::default()
+            },
+            &mut report
+        )
+        .outcome
+        .is_ok()
+    );
 }
 #[test]
 fn unknown_protocol_versions_and_duplicate_evidence_fail() {
@@ -406,16 +410,20 @@ fn every_explicit_generation_control_including_null_is_required() {
         Parameter::Candidates,
     ] {
         request.set_parameter(parameter, Presence::Null).unwrap();
-        assert!(request
-            .requirements()
-            .features
-            .contains(Feature::GenerationControls));
+        assert!(
+            request
+                .requirements()
+                .features
+                .contains(Feature::GenerationControls)
+        );
         assert_eq!(request.requirements().max_output_tokens, None);
         request.set_parameter(parameter, Presence::Missing).unwrap();
-        assert!(!request
-            .requirements()
-            .features
-            .contains(Feature::GenerationControls));
+        assert!(
+            !request
+                .requirements()
+                .features
+                .contains(Feature::GenerationControls)
+        );
     }
     let mut tokens = TokenStorage::<4>::new();
     let zero = Json::parse(b"0", &mut tokens, Limits::default()).unwrap();
@@ -430,15 +438,19 @@ fn every_explicit_generation_control_including_null_is_required() {
     request
         .set_parameter(Parameter::ParallelToolCalls, Presence::Value(disabled))
         .unwrap();
-    assert!(request
-        .requirements()
-        .features
-        .contains(Feature::ParallelTools));
+    assert!(
+        request
+            .requirements()
+            .features
+            .contains(Feature::ParallelTools)
+    );
     request.set_tool_choice(ToolChoice::Auto);
-    assert!(request
-        .requirements()
-        .features
-        .contains(Feature::ToolChoice));
+    assert!(
+        request
+            .requirements()
+            .features
+            .contains(Feature::ToolChoice)
+    );
 }
 
 #[test]
@@ -534,18 +546,20 @@ fn explicit_zero_and_large_integer_limits_are_compared_exactly() {
                 provenance: PROVENANCE,
             };
         }
-        assert!(check_capabilities(
-            e,
-            Requirements {
-                input_tokens: Some(0),
-                max_output_tokens: Some(limit),
-                ..Default::default()
-            },
-            CapabilityPolicy::default(),
-            &mut report
-        )
-        .outcome
-        .is_ok());
+        assert!(
+            check_capabilities(
+                e,
+                Requirements {
+                    input_tokens: Some(0),
+                    max_output_tokens: Some(limit),
+                    ..Default::default()
+                },
+                CapabilityPolicy::default(),
+                &mut report
+            )
+            .outcome
+            .is_ok()
+        );
         assert_eq!(
             check_capabilities(
                 e,
@@ -668,22 +682,24 @@ fn requested_budget_overrides_context_and_null_does_not_use_context() {
         .set_parameter(Parameter::MaxOutputTokens, Presence::Value(one))
         .unwrap();
     let mut report = [Diagnostic::EMPTY; 16];
-    assert!(request
-        .prepare(
-            e,
-            CallRequirements {
-                input_tokens: Some(2),
-                ..Default::default()
-            },
-            CapabilityPolicy::default(),
-            &mut report,
-            &mut [0; 512],
-            &mut [],
-            &mut tokens,
-            EncodeContext::default().with_max_tokens(999),
-            Policy::default()
-        )
-        .is_ok());
+    assert!(
+        request
+            .prepare(
+                e,
+                CallRequirements {
+                    input_tokens: Some(2),
+                    ..Default::default()
+                },
+                CapabilityPolicy::default(),
+                &mut report,
+                &mut [0; 512],
+                &mut [],
+                &mut tokens,
+                EncodeContext::default().with_max_tokens(999),
+                Policy::default()
+            )
+            .is_ok()
+    );
     request
         .set_parameter(Parameter::MaxOutputTokens, Presence::Null)
         .unwrap();
@@ -838,14 +854,16 @@ fn limits_and_named_levels_require_attributed_evidence() {
         ErrorKind::InvalidInput
     );
     e.model.reasoning_provenance = Some(PROVENANCE);
-    assert!(check_capabilities(
-        e,
-        Requirements::default(),
-        CapabilityPolicy::default(),
-        &mut []
-    )
-    .outcome
-    .is_ok());
+    assert!(
+        check_capabilities(
+            e,
+            Requirements::default(),
+            CapabilityPolicy::default(),
+            &mut []
+        )
+        .outcome
+        .is_ok()
+    );
 }
 
 #[test]

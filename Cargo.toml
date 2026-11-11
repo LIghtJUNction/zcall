@@ -1,8 +1,8 @@
 [package]
 name = "zcall"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.74"
+edition = "2024"
+rust-version = "1.99.1"
 description = "Allocation-free, protocol-independent Sans-I/O AI call kernel"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/LIghtJUNction/zcall"

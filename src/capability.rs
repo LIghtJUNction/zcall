@@ -435,12 +435,24 @@ pub fn adapter_support_for(
 
 fn adapter_condition(feature: Feature) -> Option<&'static str> {
     match feature {
-        Feature::Image | Feature::Audio | Feature::File | Feature::Video => Some("the current media reference and encoding must be representable"),
-        Feature::Reasoning | Feature::ReasoningSignature => Some("the current reasoning kind and signature namespace must match the target"),
-        Feature::StructuredOutput => Some("the current output constraint must use a verified schema mapping"),
-        Feature::ServerContext | Feature::Extensions => Some("source ownership must match the target or an allowed loss must be reported"),
-        Feature::GenerationControls => Some("every explicit control, including null, must be encodable in this version"),
-        Feature::Tools | Feature::ToolChoice | Feature::ParallelTools => Some("the actual tool contract and selection must be representable without changing strict defaults"),
+        Feature::Image | Feature::Audio | Feature::File | Feature::Video => {
+            Some("the current media reference and encoding must be representable")
+        }
+        Feature::Reasoning | Feature::ReasoningSignature => {
+            Some("the current reasoning kind and signature namespace must match the target")
+        }
+        Feature::StructuredOutput => {
+            Some("the current output constraint must use a verified schema mapping")
+        }
+        Feature::ServerContext | Feature::Extensions => {
+            Some("source ownership must match the target or an allowed loss must be reported")
+        }
+        Feature::GenerationControls => {
+            Some("every explicit control, including null, must be encodable in this version")
+        }
+        Feature::Tools | Feature::ToolChoice | Feature::ParallelTools => Some(
+            "the actual tool contract and selection must be representable without changing strict defaults",
+        ),
         _ => None,
     }
 }
@@ -575,12 +587,18 @@ fn assess<'a>(
             },
             policy.accept_unverified_conditions,
         );
-        emit(Diagnostic {
-            requirement: Requirement::Feature(feature), layer: Layer::Protocol,
-            support: protocol_support(endpoint.format, feature),
-            provenance: Provenance::new("declared format semantic representation, independent of model and adapter operation"),
-            ..Diagnostic::EMPTY
-        }, false);
+        emit(
+            Diagnostic {
+                requirement: Requirement::Feature(feature),
+                layer: Layer::Protocol,
+                support: protocol_support(endpoint.format, feature),
+                provenance: Provenance::new(
+                    "declared format semantic representation, independent of model and adapter operation",
+                ),
+                ..Diagnostic::EMPTY
+            },
+            false,
+        );
         for (layer, caps, unknown_allowed) in [
             (Layer::Model, endpoint.model, policy.accept_unknown_model),
             (

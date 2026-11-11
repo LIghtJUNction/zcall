@@ -198,16 +198,15 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
         if self.pending {
             return StageStatus::NeedOutput;
         }
-        if let Some(semantics) = event.reasoning_kind() {
-            if self.config.source != self.config.target
-                && accepts_reasoning(self.config.target)
-                && (semantics == StreamReasoningKind::Unspecified
-                    || semantics != reasoning_semantics(self.config.target))
-            {
-                return StageStatus::Failed(Error::unsupported(
-                    "stream reasoning thought/summary mapping",
-                ));
-            }
+        if let Some(semantics) = event.reasoning_kind()
+            && self.config.source != self.config.target
+            && accepts_reasoning(self.config.target)
+            && (semantics == StreamReasoningKind::Unspecified
+                || semantics != reasoning_semantics(self.config.target))
+        {
+            return StageStatus::Failed(Error::unsupported(
+                "stream reasoning thought/summary mapping",
+            ));
         }
         let mut loss = EventLosses::default();
         let mut parts = [None; 4];
@@ -348,7 +347,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                     usize::MAX,
                     false,
                     Replay::Unconsumed,
-                ))
+                ));
             }
         };
         if needed > self.scratch.len() {
@@ -444,7 +443,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                 return Err(Error::invalid(
                     "encoder buffer",
                     "use byte output, aggregate or scratch storage",
-                ))
+                ));
             }
         };
         self.converter

@@ -40,7 +40,7 @@ jobs:
         env:
           RELEASE_REF: ${{ github.ref }}
         run: test "$RELEASE_REF" = refs/heads/main
-      - run: rustup toolchain install 1.74.0 --profile minimal
+      - run: rustup toolchain install 1.99.1 --profile minimal
       - name: Resolve the exact dependency from crates.io
         run: python3 scripts/release.py dependency
       - name: Prepare the version
@@ -51,7 +51,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: python3 scripts/release.py prepare
       - run: rustup component add rustfmt clippy
-      - run: cargo +1.74.0 test --all-targets --locked
+      - run: cargo +1.99.1 test --all-targets --locked
       - run: cargo test --release --locked
       - run: cargo test --doc --locked
       - run: cargo fmt --all -- --check
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - run: rustup toolchain install 1.74.0 --profile minimal
+      - run: rustup toolchain install 1.99.1 --profile minimal
       - run: python3 scripts/release.py dependency
       - name: Apply exactly the verified version
         env:

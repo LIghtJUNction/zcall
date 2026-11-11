@@ -136,7 +136,7 @@ zconv = { version = "=0.2.0", default-features = false, git = "https://github.co
 
     def resolve_dependency(self, package):
         def generate_lock(command, *, check):
-            self.assertEqual(command, ['cargo', '+1.74.0', 'generate-lockfile'])
+            self.assertEqual(command, ['cargo', '+1.99.1', 'generate-lockfile'])
             self.assertTrue(check)
             Path('Cargo.lock').write_text('version = 3\n\n' + REGISTRY_ZCONV)
 
@@ -229,7 +229,7 @@ version = "1.2.3"
                 with redirect_stdout(StringIO()):
                     release.prepare()
                 cargo.assert_called_once_with(
-                    ['cargo', '+1.74.0', 'generate-lockfile', '--offline'], check=True)
+                    ['cargo', '+1.99.1', 'generate-lockfile', '--offline'], check=True)
             self.assertEqual(release.manifest()['version'], '1.2.4')
             expected = update_path_lock(self.LOCK, 'zcall', '1.2.3', '1.2.4')
             for project in ('comparison', 'fuzz'):
