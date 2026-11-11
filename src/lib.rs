@@ -9,6 +9,7 @@
 
 mod capability;
 mod common;
+mod discovery;
 mod document;
 mod endpoint;
 mod session;
@@ -18,6 +19,7 @@ mod session;
 pub mod v1 {
     pub use crate::capability::*;
     pub use crate::common::*;
+    pub use crate::discovery::*;
     pub use crate::document::*;
     pub use crate::endpoint::*;
     pub use crate::session::*;

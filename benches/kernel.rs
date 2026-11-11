@@ -142,6 +142,7 @@ fn main() {
     let quick = cfg!(debug_assertions) || std::env::args().any(|a| a == "--quick");
     let iters = if quick { 100 } else { 20_000 };
     println!("workload,input_bytes,iterations,median_ns,min_ns,max_ns,mib_per_s");
+    endpoints(iters);
     requests(CHAT, "small_request", iters);
     let unicode = format!(
         "{{\"model\":\"m\",\"messages\":[{{\"role\":\"user\",\"content\":\"{}\"}}]}}",
@@ -274,5 +275,48 @@ fn main() {
     println!(
         "# response_header_bytes={}",
         core::mem::size_of::<Response<'_, '_>>()
+    );
+}
+
+fn endpoints(iters: usize) {
+    let base = "https://example.test/gateway/v1beta?api-version=1";
+    let mut url = [0; 256];
+    let mut body = [0; 256];
+    let mut tokens = TokenStorage::<128>::new();
+    measure("zcall_endpoint_url", base.len(), iters, || {
+        let endpoint =
+            HttpEndpoint::new(black_box(base), Protocol::GeminiGenerateContent.into()).unwrap();
+        let result = endpoint
+            .url_into(Some(black_box("model-1")), true, &mut url)
+            .unwrap();
+        black_box(result).len()
+    });
+    measure("zcall_discovery_probe", base.len(), iters, || {
+        let mut discovery = Discovery::new(black_box(base), black_box("m")).unwrap();
+        let probe = discovery.next_probe(&mut url, &mut body).unwrap().unwrap();
+        black_box(probe.url).len() + black_box(probe.body).len()
+    });
+    measure("zcall_discovery_confirm", RESPONSE.len(), iters, || {
+        let mut discovery = Discovery::new(black_box(base), "m").unwrap();
+        discovery.next_probe(&mut url, &mut body).unwrap();
+        let result = discovery
+            .observe(
+                200,
+                Some("application/json"),
+                black_box(RESPONSE),
+                &mut tokens,
+                Limits::default(),
+            )
+            .unwrap();
+        assert_eq!(result, ProbeOutcome::Supported);
+        black_box(discovery.attempts()).len()
+    });
+    println!(
+        "# http_endpoint_bytes={}",
+        std::mem::size_of::<HttpEndpoint<'_>>()
+    );
+    println!(
+        "# discovery_state_bytes={}",
+        std::mem::size_of::<Discovery<'_>>()
     );
 }

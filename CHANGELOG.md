@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add borrowed `HttpEndpoint` configuration for six protocols, caller-buffered URL
+  construction, explicit API prefixes, complete endpoints, query preservation
+  and Gemini model/stream routing.
+- Add bounded Sans-I/O `Discovery` with configurable candidate order and token
+  limits, protocol-specific response validation, inspectable attempt outcomes
+  and reusable endpoint selection.
+- Add endpoint examples, a runnable curl-backed discovery client, URL and
+  discovery regression tests, and local HTTP integration coverage.
+
 ## 0.1.2
 
 - Upgrade the sole runtime dependency from published `zconv =0.2.0` to

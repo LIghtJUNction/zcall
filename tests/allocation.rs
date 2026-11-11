@@ -75,3 +75,42 @@ fn request_edit_encode_and_stream_do_not_allocate() {
     assert!(result.unwrap() > 0);
     assert_eq!(ALLOCATIONS.with(Cell::get), 0);
 }
+
+#[test]
+fn endpoint_and_discovery_do_not_allocate() {
+    let mut url = [0; 512];
+    let mut body = [0; 512];
+    let mut tokens = TokenStorage::<128>::new();
+    let response = br#"{"id":"r","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]}"#;
+    ALLOCATIONS.with(|n| n.set(0));
+    TRACK.with(|n| n.set(true));
+    let result = (|| -> Result<usize, DiscoveryError> {
+        let mut total = 0;
+        for format in DEFAULT_DISCOVERY_FORMATS {
+            let endpoint = HttpEndpoint::new("https://example.test/proxy?api-version=1", format)?;
+            total += endpoint.url_into(Some("model-中文"), true, &mut url)?.len();
+        }
+        let mut discovery = Discovery::new("https://example.test", "model")?;
+        for _ in DEFAULT_DISCOVERY_FORMATS {
+            let probe = discovery.next_probe(&mut url, &mut body)?.unwrap();
+            total += probe.url.len() + probe.body.len();
+            discovery.observe(404, None, &[], &mut tokens, Limits::default())?;
+        }
+        assert!(discovery.is_finished());
+        let mut discovery = Discovery::new("https://example.test", "model")?;
+        discovery.next_probe(&mut url, &mut body)?;
+        let outcome = discovery.observe(
+            200,
+            Some("application/json"),
+            response,
+            &mut tokens,
+            Limits::default(),
+        )?;
+        assert_eq!(outcome, ProbeOutcome::Supported);
+        assert!(discovery.selected().is_some());
+        Ok(total)
+    })();
+    TRACK.with(|n| n.set(false));
+    assert!(result.unwrap() > 0);
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+}

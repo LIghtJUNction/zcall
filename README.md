@@ -61,6 +61,56 @@ encoder. `Request::encode` is the lower-level conversion operation and makes no
 model-capability promise. Unknown model features or deployment limits remain
 unknown unless explicitly accepted, with a per-layer diagnostic report.
 
+## Base URLs and protocol discovery
+
+These APIs are available on `main` for the next release. To use them before
+publication, point Cargo at this repository's `main` branch:
+
+```toml
+[dependencies]
+zcall = { git = "https://github.com/LIghtJUNction/zcall", branch = "main", default-features = false }
+```
+
+Configure a known protocol with `HttpEndpoint`; it borrows the base URL and writes
+the final request URL into caller storage:
+
+```rust
+use zcall::v1::*;
+
+let endpoint = HttpEndpoint::new(
+    "https://gateway.example/v1",
+    Protocol::OpenAiResponses.into(),
+)?;
+let mut url = [0; 256];
+assert_eq!(
+    endpoint.url_into(None, false, &mut url)?,
+    "https://gateway.example/v1/responses",
+);
+# Ok::<(), EndpointError>(())
+```
+
+For an unknown protocol, `Discovery::new(base_url, model)` generates bounded
+probe requests. Send each `Probe` with your HTTP client and pass its status,
+content type and body to `Discovery::observe`. The first candidate with a
+protocol-specific, schema-valid successful response becomes `selected()`.
+Credentials, timeouts and HTTP remain in your application. Each probe is a
+small generation request and may consume provider credits; discovery never
+replays your business request. Authentication, rate limits, server failures and
+unrecognized responses remain separate outcomes.
+
+```sh
+# Generate all six endpoint styles without network access.
+cargo run --example endpoint
+# Use an existing curl executable and the API_KEY environment variable.
+cargo run --example discover -- https://gateway.example/v1 your-model auto
+# Explicit mode constructs the endpoint without sending a probe.
+cargo run --example discover -- https://gateway.example/v1 your-model responses
+```
+
+See [endpoint and discovery usage](docs/ENDPOINTS.md) for URL rules, probe
+configuration, transport integration and caching. These APIs preserve the
+library's `no_std`, zero-allocation and sole-dependency contract.
+
 ## Contract
 
 - Requests, complete responses and events have separate types. `Presence`
@@ -105,8 +155,10 @@ python3 scripts/check_package.py
 python3 -m unittest discover -s scripts -p 'test_*.py'
 ```
 
-See [examples/request.rs](examples/request.rs) for backend switching and
-[examples/stream.rs](examples/stream.rs) for the shared event consumer. The
+See [examples/request.rs](examples/request.rs) for backend switching,
+[examples/stream.rs](examples/stream.rs) for the shared event consumer,
+[examples/endpoint.rs](examples/endpoint.rs) for URL construction and
+[examples/discover.rs](examples/discover.rs) for a runnable discovery client. The
 [semantic contract](docs/CONTRACT.md), [support matrix](docs/SUPPORT.md),
 [resource recovery](docs/RESOURCES.md), [dependency audit](docs/ZCONV_AUDIT.md),
 [measurements](docs/PERFORMANCE.md), [validation evidence](docs/VALIDATION.md)

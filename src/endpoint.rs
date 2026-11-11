@@ -169,9 +169,17 @@ impl<'a> UrlParts<'a> {
                 ));
             }
         }
+        let path = path.trim_end_matches('/');
+        if (path.ends_with(":generateContent") || path.ends_with(":streamGenerateContent"))
+            && gemini_path(path).is_none()
+        {
+            return Err(EndpointError::InvalidUrl(
+                "GenerateContent call path requires /models/{model}:action with one nonempty model segment",
+            ));
+        }
         Ok(Self {
             origin: &url[..origin_end],
-            path: path.trim_end_matches('/'),
+            path,
             query,
         })
     }
@@ -280,7 +288,11 @@ fn gemini_path(path: &str) -> Option<(&str, &str)> {
         .strip_suffix(":generateContent")
         .or_else(|| path.strip_suffix(":streamGenerateContent"))?;
     let (prefix, model) = model_path.rsplit_once("/models/")?;
-    (!model.is_empty() && !model.contains('/')).then_some((prefix, model))
+    (!model.is_empty()
+        && !model.contains('/')
+        && !decoded_eq(model, ".")
+        && !decoded_eq(model, ".."))
+    .then_some((prefix, model))
 }
 
 #[derive(Clone, Copy)]

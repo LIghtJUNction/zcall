@@ -132,6 +132,30 @@ fn a_complete_endpoint_must_match_the_configured_protocol() {
 }
 
 #[test]
+fn malformed_complete_gemini_paths_are_rejected_instead_of_used_as_prefixes() {
+    for base in [
+        "https://example.test/v1beta/models/:generateContent",
+        "https://example.test/v1beta/models/m/n:generateContent",
+        "https://example.test/v1beta/m:generateContent",
+        "https://example.test/v1beta/models/:streamGenerateContent/?alt=sse",
+        "https://example.test/v1beta/models/m/n:streamGenerateContent",
+        "https://example.test/v1beta/models/.:generateContent",
+        "https://example.test/v1beta/models/..:generateContent",
+        "https://example.test/v1beta/models/%2e%2E:generateContent",
+    ] {
+        for protocol in [Protocol::GeminiGenerateContent, Protocol::OpenAiChat] {
+            assert!(
+                matches!(
+                    HttpEndpoint::new(base, protocol.into()),
+                    Err(EndpointError::InvalidUrl(_))
+                ),
+                "{base} with {protocol:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn gemini_action_model_and_query_follow_each_request() {
     let base = "https://example.test/proxy/v1beta/models/old:generateContent?api-version=1&alt=json&key=a%2Bb";
     assert_eq!(
