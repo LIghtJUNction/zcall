@@ -1,6 +1,6 @@
 [package]
 name = "zcall"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.99.1"
 description = "Allocation-free, protocol-independent Sans-I/O AI call kernel"
