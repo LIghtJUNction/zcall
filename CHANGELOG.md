@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - Add borrowed `HttpEndpoint` configuration for six protocols, caller-buffered URL
   construction, explicit API prefixes, complete endpoints, query preservation

@@ -86,9 +86,10 @@ included for reproduction.
 
 ## Integration and release state
 
-The feature is committed on `main` under `Unreleased`; the manifest remains
-0.1.2 and this task does not upload a new registry version. To use the verified
-source immediately:
+At the time of this original validation, the feature was committed on `main`
+under `Unreleased` with manifest version 0.1.2. Its subsequent release is
+tracked in the changelog and crates.io. The original tested source can also be
+reproduced directly:
 
 ```toml
 zcall = { git = "https://github.com/LIghtJUNction/zcall", rev = "413ca14ecfc27a7e060f7c606cf849fdf04ccb81", default-features = false }

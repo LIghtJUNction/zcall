@@ -17,7 +17,7 @@ retries, scheduling, conversation history, tool execution and agent decisions.
 
 ```toml
 [dependencies]
-zcall = { version = "0.1.2", default-features = false }
+zcall = { version = "0.1.3", default-features = false }
 ```
 
 The library pins the published `zconv = "=0.2.2"` with default features disabled.
@@ -63,13 +63,8 @@ unknown unless explicitly accepted, with a per-layer diagnostic report.
 
 ## Base URLs and protocol discovery
 
-These APIs are available on `main` for the next release. To use them before
-publication, point Cargo at this repository's `main` branch:
-
-```toml
-[dependencies]
-zcall = { git = "https://github.com/LIghtJUNction/zcall", branch = "main", default-features = false }
-```
+`HttpEndpoint` and `Discovery` are included in zcall 0.1.3. Use the versioned
+crates.io dependency above for reproducible installs.
 
 Configure a known protocol with `HttpEndpoint`; it borrows the base URL and writes
 the final request URL into caller storage:
