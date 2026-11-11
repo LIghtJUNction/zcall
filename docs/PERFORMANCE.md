@@ -1,5 +1,34 @@
 # Performance and memory measurements
 
+## Endpoint and discovery run (2026-11-11)
+
+The endpoint/discovery source at commit
+[`413ca14`](https://github.com/LIghtJUNction/zcall/commit/413ca14ecfc27a7e060f7c606cf849fdf04ccb81)
+was measured with Rust 1.99.1, zconv 0.2.2 and an AMD EPYC 9V74 host exposing
+nine logical CPUs. Each workload warms up for 200 iterations and reports the
+median of seven samples of 20,000 iterations. The optimized profile uses thin
+LTO and one codegen unit. Network access and model execution are outside these
+measurements; host contention and CPU frequency are uncontrolled.
+
+| Workload | Median µs | Sample mean range µs |
+| --- | ---: | ---: |
+| Validate a base URL and build a Gemini streaming URL | 0.480 | 0.452–0.505 |
+| Initialize discovery and build the first probe URL/body | 1.952 | 1.927–2.015 |
+| Initialize, build a probe, parse and confirm a 229-byte Chat response | 6.833 | 5.705–10.855 |
+
+The last row includes the whole local discovery setup and confirmation path.
+It does not measure a response parser alone or end-to-end network latency.
+The allocation-counting integration test observes zero heap allocations for
+all six URL/probe paths and successful response confirmation. `HttpEndpoint`
+occupies 56 bytes and `Discovery` 480 bytes on this target, excluding borrowed
+strings, caller buffers, token storage and temporary stack frames.
+
+The [CSV](benchmarks/2026-11-11-endpoints.csv) includes the new workloads and
+the existing kernel measurements from the same run. The
+[environment record](benchmarks/2026-11-11-endpoints-environment.json) identifies
+the source, compiler and method. These absolute measurements make no speedup
+claim against another library or a different host.
+
 ## Rust 1.99.1 / Edition 2024 run (2026-11-11)
 
 The Edition 2024 migration was benchmarked on production-source commit

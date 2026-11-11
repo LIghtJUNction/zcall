@@ -1,0 +1,23 @@
+workload,input_bytes,iterations,median_ns,min_ns,max_ns,mib_per_s
+zcall_endpoint_url,49,20000,480.00,452.33,504.51,97.36
+zcall_discovery_probe,49,20000,1952.17,1926.93,2015.10,23.94
+zcall_discovery_confirm,229,20000,6833.35,5705.26,10854.75,31.96
+# http_endpoint_bytes=56
+# discovery_state_bytes=480
+zcall_ir_small_request,111,20000,2662.50,2555.22,4227.93,39.76
+zconv_ir_small_request,111,20000,3193.31,2468.49,3846.65,33.15
+zcall_ir_unicode_request,1783,20000,3937.64,3808.39,6151.47,431.83
+zconv_ir_unicode_request,1783,20000,4232.03,3759.83,6554.08,401.79
+zcall_tool_request,513,20000,6858.29,5092.55,9709.99,71.33
+zcall_response_view,229,20000,2163.06,2083.64,2788.25,100.96
+zcall_session_fragment_309,309,5001,5103.97,4997.07,5512.79,57.74
+zcall_session_fragment_16,309,5001,5478.12,5299.01,5708.62,53.79
+zcall_session_fragment_1,309,5001,8230.32,7818.26,9402.16,35.80
+# token_128_bytes=2560
+# record_32_bytes=6912
+# stream_workspace_64_8_4_bytes=4352
+# session_state_bytes=640
+# encoder_workspace_64_4_bytes=1984
+# encoder_state_bytes=1200
+# request_header_bytes=664
+# response_header_bytes=448

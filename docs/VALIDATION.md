@@ -1,6 +1,17 @@
 # Validation and acceptance evidence
 
-## Current dependency upgrade (2026-11-11)
+## Endpoint and discovery feature (2026-11-11)
+
+The new `HttpEndpoint` and `Discovery` APIs are recorded in the
+[endpoint validation report](verification/2026-11-11-endpoints.md). The feature
+source passed 109 integration test functions and two README doctests in the
+optimized build. The new tests exercise actual loopback HTTP, all six protocol
+families, ambiguous responses, bounded storage recovery and zero allocations.
+The [API guide](ENDPOINTS.md) describes model/credential requirements and the
+transport boundary; the [performance report](PERFORMANCE.md) records local
+operation costs separately from network latency.
+
+## Dependency upgrade record: 0.1.2 (2026-11-11)
 
 The zcall 0.1.2 patch release updates its sole runtime dependency to published
 `zconv = "=0.2.2"`, with default features disabled. The locked registry archive
