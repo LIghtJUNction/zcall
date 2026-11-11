@@ -187,6 +187,53 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(select_version('0.1.0', 'none', '', 'v0.1.0'), '0.1.0')
 
 
+class ReleaseRequestTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.enterContext(chdir(directory.name))
+        Path('.github').mkdir()
+        Path('Cargo.toml').write_text('''[package]
+name = "zcall"
+version = "0.1.2"
+
+[dependencies]
+zconv = { version = "=0.2.2", default-features = false }
+''')
+        self.valid = {'crate': 'zcall', 'version': '0.1.2',
+                      'zconv': '=0.2.2', 'publish': True}
+
+    def test_exact_main_release_request(self):
+        Path('.github/release-request.json').write_text(json.dumps(self.valid))
+        with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main'}):
+            with redirect_stdout(StringIO()):
+                release.request()
+
+    def test_mismatched_incomplete_or_inert_request_is_rejected(self):
+        variations = (
+            {**self.valid, 'version': '0.1.3'},
+            {**self.valid, 'zconv': '=0.2.0'},
+            {**self.valid, 'crate': 'another'},
+            {**self.valid, 'publish': False},
+            {**self.valid, 'publish': 1},
+            {**self.valid, 'unexpected': 'ignore-me'},
+            {'version': '0.1.2'},
+            ['zcall', '0.1.2'],
+        )
+        for variation in variations:
+            with self.subTest(variation=variation):
+                Path('.github/release-request.json').write_text(json.dumps(variation))
+                with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main'}):
+                    with self.assertRaises(ValueError):
+                        release.request()
+
+    def test_non_main_release_request_is_rejected(self):
+        Path('.github/release-request.json').write_text(json.dumps(self.valid))
+        with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/feature'}):
+            with self.assertRaisesRegex(ValueError, 'main'):
+                release.request()
+
+
 class PrepareTests(unittest.TestCase):
     LOCK = '''# Preserve the lockfile version and registry resolution.
 version = 4

@@ -58,6 +58,26 @@ def manifest():
     return tomllib.loads(Path('Cargo.toml').read_text())['package']
 
 
+def request():
+    """Require an explicit, matching main-branch release request for push events."""
+    if os.environ.get('GITHUB_REF') != 'refs/heads/main':
+        raise ValueError('release requests must originate from main')
+    data = json.loads(Path('.github/release-request.json').read_text())
+    if not isinstance(data, dict) or set(data) != {'crate', 'version', 'zconv', 'publish'}:
+        raise ValueError('release request must contain only the required keys')
+    package = tomllib.loads(Path('Cargo.toml').read_text())
+    expected = {
+        'crate': package['package']['name'],
+        'version': package['package']['version'],
+        'zconv': package['dependencies']['zconv']['version'],
+        'publish': True,
+    }
+    if data != expected or data['publish'] is not True:
+        raise ValueError('release request does not match the exact crate and dependency')
+    version_tuple(data['version'])
+    print(f"Validated explicit release request for {data['crate']} {data['version']}")
+
+
 def update_path_lock(data, name, current, chosen):
     """Update only the local crate stanza; retain every registry pin and checksum."""
     count = 0
@@ -170,7 +190,7 @@ def git_preflight():
     else:
         reachability = subprocess.run(['git', 'merge-base', '--is-ancestor', expected, 'FETCH_HEAD'], check=False)
         if reachability.returncode != 0:
-            raise ValueError('release tag source is not part of main')
+            raise ValueError('release source is not part of main')
     tag = subprocess.run(
         ['git', 'rev-parse', '--verify', '--quiet', f'refs/tags/v{version}^{{commit}}'],
         text=True, stdout=subprocess.PIPE, check=False)
@@ -269,7 +289,8 @@ def dependency():
 
 
 if __name__ == '__main__':
-    commands = {'prepare': prepare, 'registry': registry, 'git-preflight': git_preflight, 'dependency': dependency}
+    commands = {'prepare': prepare, 'registry': registry, 'git-preflight': git_preflight,
+                'dependency': dependency, 'request': request}
     if len(sys.argv) != 2 or sys.argv[1] not in commands:
-        raise SystemExit('usage: release.py prepare|registry|git-preflight|dependency')
+        raise SystemExit('usage: release.py prepare|registry|git-preflight|dependency|request')
     commands[sys.argv[1]]()

@@ -1,5 +1,34 @@
 # Validation and acceptance evidence
 
+## Current dependency upgrade (2026-11-11)
+
+The zcall 0.1.2 patch release updates its sole runtime dependency to published
+`zconv = "=0.2.2"`, with default features disabled. The locked registry archive
+checksum is `48036db39f0148be3536614d546448cc9a386ce30b43df901a2c779b9e1c1421`;
+the upstream release tag points to commit
+`5c35f4d98ac61fcf331ef010defd40403f274acc`. Both crates declare Rust
+1.99.1 and Edition 2024; neither introduces `std`, `alloc`, a build script, or
+third-party runtime dependencies beyond zcall's direct zconv dependency.
+
+The upgraded dependency passed the following checks on Rust 1.99.1:
+
+| Check | Observed result |
+|---|---|
+| `python3 scripts/release.py dependency` | Registry resolution, exact version, two-package graph, and standalone fuzz lock checksum verified. |
+| `cargo +1.99.1 test --all-targets --locked` | 73 integration tests passed; examples and benchmark target compiled and ran. |
+| `cargo +1.99.1 test --release --locked` | 73 integration tests and one doctest passed in release mode. |
+| `cargo +1.99.1 test --doc --locked` | One doctest passed. |
+| `cargo +1.99.1 clippy --all-targets --locked -- -D warnings` | Passed with warnings denied. |
+| `python3 scripts/check_package.py` | Exactly zcall → zconv; source audit found no `std`, `alloc`, `unsafe` or build script. |
+| `python3 -m unittest discover -s scripts -p 'test_*.py'` | 29 release-script tests passed, including explicit push-request validation. |
+| `cargo +1.99.1 fmt --all -- --check` | Passed. |
+| `cargo +1.99.1 package --locked --allow-dirty` | Package built and verified against the registry dependency. |
+
+These checks establish source compatibility and the tested behavior of this
+patch release; they are not a new throughput measurement or a guarantee about
+untested model/endpoint capabilities. The historical 0.2.0 acceptance evidence
+below remains available for comparison.
+
 The original 2026-11-10 acceptance passed 73 integration test functions and one
 README doctest on stable Rust 1.99.1 and the **then-declared** MSRV, Rust 1.74.0.
 On 2026-11-11, zcall moved to Edition 2024 and declared Rust 1.99.1 as its new

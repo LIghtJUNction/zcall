@@ -18,7 +18,8 @@ on:
         type: boolean
         default: false
   push:
-    tags: ['v[0-9]*']
+    branches: [main]
+    paths: ['.github/release-request.json']
 permissions:
   contents: read
 concurrency:
@@ -40,6 +41,9 @@ jobs:
         env:
           RELEASE_REF: ${{ github.ref }}
         run: test "$RELEASE_REF" = refs/heads/main
+      - name: Validate the explicit release request
+        if: github.event_name == 'push'
+        run: python3 scripts/release.py request
       - run: rustup toolchain install 1.99.1 --profile minimal
       - name: Resolve the exact dependency from crates.io
         run: python3 scripts/release.py dependency

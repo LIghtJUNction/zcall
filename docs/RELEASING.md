@@ -2,8 +2,18 @@
 
 The Release workflow supports `none`, `patch`, `minor`, `major` and an explicit
 stable `MAJOR.MINOR.PATCH`. An explicit version requires `bump=none`. The first
-0.1.0 release also uses `none`. Manual releases must run from main. A matching
-version tag can trigger the same gates.
+0.1.0 release also uses `none`. Manual releases must run from main.
+Alternatively, a push to `main` modifying the release-request marker publishes
+an already-bumped version. Tag pushes do not publish again; successful
+publication creates the tag and GitHub release.
+
+For an explicit push-triggered release, first update the manifest and its
+lockfiles to the intended patch version, and commit a matching
+`.github/release-request.json` with `crate`, `version`, `zconv` (including the
+exact `=` prefix) and `publish: true`. The workflow validates all four fields
+against the manifest and only runs for marker changes on `main`. Ordinary source
+pushes do not publish. A protected `crates-io` environment may still require
+approval. Do not reuse an already published version.
 
 ## Gates
 
@@ -40,15 +50,15 @@ never cancelled by a newer release.
 
 ## Required dependency release
 
-The required zconv 0.2.0 is published, independently audited and resolved in the
+The required zconv 0.2.2 is published, manifest-audited and resolved in the
 final lockfile. For a future dependency bump, publish the required zconv version
 before zcall. The dependency gate verifies the actual registry result and builds
 it; a Git tag alone does not satisfy the gate.
 
-Use the manual main-branch workflow for the first zcall publication. It commits
-the verified registry manifest and all affected lockfiles before recording the
-release tag. A pre-created tag over the development Git manifest intentionally
-fails the source-consistency check.
+Manual releases can bump the version and commit the verified registry manifest
+and all affected lockfiles before recording the release tag. Explicit marker
+releases must already have their version and registry lockfiles committed, so
+the resulting tag identifies exactly the source that passed verification.
 
 For local review:
 
@@ -62,4 +72,4 @@ cargo publish --dry-run --locked --allow-dirty
 ```
 
 The first command fails if the required registry version is unavailable. It
-passed for the pinned zconv 0.2.0 during this implementation's validation.
+passed for the pinned zconv 0.2.2 during this upgrade's validation.
