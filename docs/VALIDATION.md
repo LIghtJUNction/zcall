@@ -23,6 +23,8 @@ The upgraded dependency passed the following checks on Rust 1.99.1:
 | `python3 -m unittest discover -s scripts -p 'test_*.py'` | 29 release-script tests passed, including explicit push-request validation. |
 | `cargo +1.99.1 fmt --all -- --check` | Passed. |
 | `cargo +1.99.1 package --locked --allow-dirty` | Package built and verified against the registry dependency. |
+| `cargo +1.99.1 publish --dry-run --locked --allow-dirty` | The 0.1.2 crate packaged, verified, and stopped before registry upload. |
+| `cargo +1.99.1 check --lib --locked --target ...` | `wasm32-unknown-unknown`, `aarch64-unknown-linux-gnu` and `thumbv7em-none-eabi` passed. |
 
 These checks establish source compatibility and the tested behavior of this
 patch release; they are not a new throughput measurement or a guarantee about

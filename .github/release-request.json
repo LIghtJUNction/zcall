@@ -1,0 +1,6 @@
+{
+  "crate": "zcall",
+  "version": "0.1.2",
+  "zconv": "=0.2.2",
+  "publish": true
+}

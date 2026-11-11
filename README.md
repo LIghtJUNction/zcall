@@ -17,12 +17,11 @@ retries, scheduling, conversation history, tool execution and agent decisions.
 
 ```toml
 [dependencies]
-zcall = { git = "https://github.com/LIghtJUNction/zcall", branch = "main", default-features = false }
+zcall = { version = "0.1.2", default-features = false }
 ```
 
 The library pins the published `zconv = "=0.2.2"` with default features disabled.
-Its dependency graph contains only zcall and zconv. The Git installation above
-works before zcall's own first registry publication. The release workflow checks
+Its dependency graph contains only zcall and zconv. The release workflow checks
 the actual registry dependency, package, name ownership and version before
 publishing; it never ships a Git-only or path-only dependency.
 

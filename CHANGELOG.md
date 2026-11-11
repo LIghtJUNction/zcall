@@ -6,6 +6,8 @@
   `zconv =0.2.2`, preserving the stable `v1` public interface and `no_std` contract.
 - Revalidate the exact crates.io dependency, caller-owned workspace paths,
   stream lifecycle, test suite, and standalone fuzz lockfile on Rust 1.99.1.
+- Add a separately validated, explicit `main` release-request trigger with
+  exact crate/version/dependency matching; prevent tag pushes from republishing.
 
 ## 0.1.1
 
