@@ -6,8 +6,7 @@ Rust 1.99.1 · Edition 2024 · `no_std` · `core` + `zconv` · no allocation · 
 The repository pins [Rust 1.99.1](https://blog.rust-lang.org/releases/latest/),
 the latest stable release verified on 2026-11-11, as its development toolchain
 and declared minimum compiler. This raises zcall's former 1.74 minimum; the
-published zconv dependency retains its
-own separate Rust 1.74 declaration.
+published zconv 0.2.2 dependency also declares Rust 1.99.1 as its minimum.
 
 `zcall::v1` gives a harness ordered requests, borrowed complete responses, unified
 stream events, explicit capabilities and a model-turn state machine. `zconv`
@@ -21,7 +20,7 @@ retries, scheduling, conversation history, tool execution and agent decisions.
 zcall = { git = "https://github.com/LIghtJUNction/zcall", branch = "main", default-features = false }
 ```
 
-The library pins the published `zconv = "=0.2.0"` with default features disabled.
+The library pins the published `zconv = "=0.2.2"` with default features disabled.
 Its dependency graph contains only zcall and zconv. The Git installation above
 works before zcall's own first registry publication. The release workflow checks
 the actual registry dependency, package, name ownership and version before

@@ -1,5 +1,15 @@
 # zconv integration audit
 
+## Current dependency: zconv 0.2.2 (2026-11-11)
+
+zcall 0.1.2 pins the published `zconv = "=0.2.2"` with all features disabled.
+The upstream annotated tag `v0.2.2` points to commit
+`5c35f4d98ac61fcf331ef010defd40403f274acc`. The registry lockfile records
+SHA-256 `48036db39f0148be3536614d546448cc9a386ce30b43df901a2c779b9e1c1421`.
+Its published manifest declares Rust 1.99.1, Edition 2024, no dependencies and
+an empty default feature set. The audit below documents the earlier 0.2.0
+integration; those historical source and checksum claims do not describe 0.2.2.
+
 ## Baseline
 
 The initialization audit read zconv 0.1.1 at commit

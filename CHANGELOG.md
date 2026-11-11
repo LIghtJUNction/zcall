@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
+
+- Upgrade the sole runtime dependency from published `zconv =0.2.0` to
+  `zconv =0.2.2`, preserving the stable `v1` public interface and `no_std` contract.
+- Revalidate the exact crates.io dependency, caller-owned workspace paths,
+  stream lifecycle, test suite, and standalone fuzz lockfile on Rust 1.99.1.
+
+## 0.1.1
 
 - Upgrade the declared MSRV and pinned development toolchain to Rust 1.99.1,
   the latest stable release verified on 2026-11-11; adopt Rust Edition 2024.

@@ -12,7 +12,7 @@ categories = ["no-std", "api-bindings", "parser-implementations"]
 include = ["src/**", "tests/**", "examples/**", "benches/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-*", "Cargo.toml", "Cargo.lock"]
 
 [dependencies]
-zconv = { version = "=0.2.0", default-features = false }
+zconv = { version = "=0.2.2", default-features = false }
 
 [dev-dependencies]
 
