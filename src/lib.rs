@@ -10,6 +10,7 @@
 mod capability;
 mod common;
 mod document;
+mod endpoint;
 mod session;
 
 /// Version one of the stable request, response, event and lifecycle contract.
@@ -18,5 +19,6 @@ pub mod v1 {
     pub use crate::capability::*;
     pub use crate::common::*;
     pub use crate::document::*;
+    pub use crate::endpoint::*;
     pub use crate::session::*;
 }
