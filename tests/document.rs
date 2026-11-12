@@ -1546,3 +1546,56 @@ fn changing_incomplete_choice_clears_stale_provider_snapshot() {
     assert_eq!(check.status(), Finish::Stop);
     assert_eq!(check.choices().next().unwrap().finish(), Finish::Stop);
 }
+
+#[test]
+fn schema_dialects_and_provider_signatures_are_public_and_round_trip() {
+    let input = br#"{"contents":[{"role":"model","parts":[{"text":"answer","thoughtSignature":"sig"}]}],"tools":[{"functionDeclarations":[{"name":"json","parametersJsonSchema":{"type":"object"}},{"name":"typed","parameters":{"type":"OBJECT"}}]}]}"#;
+    let mut tokens = TokenStorage::<256>::new();
+    let mut records = RecordStorage::<64>::new();
+    let mut request = Request::decode(
+        Protocol::GeminiGenerateContent.into(),
+        input,
+        &mut tokens,
+        &mut records,
+        Limits::default(),
+    )
+    .unwrap();
+    let tools: Vec<_> = request.tools().collect();
+    assert_eq!(tools[0].schema_dialect, SchemaDialect::JsonSchema);
+    assert_eq!(tools[1].schema_dialect, SchemaDialect::GeminiSchema);
+    let block = request
+        .messages()
+        .next()
+        .unwrap()
+        .contents()
+        .next()
+        .unwrap();
+    let signature = block.signature().value().unwrap();
+    assert_eq!(signature.source, Protocol::GeminiGenerateContent.into());
+    assert!(signature.value.eq_str("sig"));
+    request
+        .set_block_signature(
+            0,
+            0,
+            Presence::Value(ProviderSignature {
+                source: signature.source,
+                value: Text::new("replacement"),
+            }),
+        )
+        .unwrap();
+    let mut output = [0; 4096];
+    let mut scratch = [0; 4096];
+    let report = request
+        .encode(
+            Protocol::GeminiGenerateContent.into(),
+            &mut output,
+            &mut scratch,
+            &mut tokens,
+            EncodeContext::default(),
+            Policy::default(),
+        )
+        .unwrap();
+    let output = std::str::from_utf8(&output[..report.written]).unwrap();
+    assert!(output.contains("parametersJsonSchema"));
+    assert!(output.contains("\"thoughtSignature\":\"replacement\""));
+}

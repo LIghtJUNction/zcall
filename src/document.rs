@@ -40,6 +40,7 @@ macro_rules! mapped_enum {
         }
     };
 }
+mapped_enum!(SchemaDialect => SchemaDialect { JsonSchema, GeminiSchema });
 mapped_enum!(Role => Role { System, Developer, User, Assistant, Tool });
 mapped_enum!(ContentShape => ContentShape { Missing, Null, String, Array });
 mapped_enum!(MediaKind => MediaKind { Image, Audio, File, Video });
@@ -74,6 +75,7 @@ pub enum Data<'a> {
     Json(Json<'a>),
     JsonText(Text<'a>),
     Text(Text<'a>),
+    ObjectOrText { text: Text<'a>, key: Text<'a> },
     EmptyObject,
 }
 impl<'a> Data<'a> {
@@ -82,6 +84,10 @@ impl<'a> Data<'a> {
             Self::Json(v) => ir::Data::Json(v.0),
             Self::JsonText(v) => ir::Data::JsonText(v.0),
             Self::Text(v) => ir::Data::Text(v.0),
+            Self::ObjectOrText { text, key } => ir::Data::ObjectOrText {
+                text: text.0,
+                key: key.0,
+            },
             Self::EmptyObject => ir::Data::EmptyObject,
         }
     }
@@ -90,6 +96,10 @@ impl<'a> Data<'a> {
             ir::Data::Json(v) => Self::Json(Json(v)),
             ir::Data::JsonText(v) => Self::JsonText(Text(v)),
             ir::Data::Text(v) => Self::Text(Text(v)),
+            ir::Data::ObjectOrText { text, key } => Self::ObjectOrText {
+                text: Text(text),
+                key: Text(key),
+            },
             ir::Data::EmptyObject => Self::EmptyObject,
         }
     }
@@ -286,6 +296,7 @@ pub struct ToolDefinition<'a> {
     pub name: Text<'a>,
     pub description: Presence<Text<'a>>,
     pub parameters: Presence<Json<'a>>,
+    pub schema_dialect: SchemaDialect,
     /// Missing/null retain the authoring format's strict-default semantics.
     pub strict: Presence<bool>,
     pub legacy: bool,
@@ -296,6 +307,7 @@ impl<'a> ToolDefinition<'a> {
             name: Text::new(name),
             description: Presence::Missing,
             parameters: Presence::Missing,
+            schema_dialect: SchemaDialect::JsonSchema,
             strict: Presence::Missing,
             legacy: false,
         }
@@ -305,6 +317,7 @@ impl<'a> ToolDefinition<'a> {
             name: self.name.0,
             description: text_raw(self.description),
             parameters: json_raw(self.parameters),
+            schema_dialect: self.schema_dialect.raw(),
             strict: self.strict.into_raw(),
             extensions: ir::Span::EMPTY,
             legacy: self.legacy,
@@ -315,6 +328,7 @@ impl<'a> ToolDefinition<'a> {
             name: Text(value.name),
             description: text_view(value.description),
             parameters: json_view(value.parameters),
+            schema_dialect: SchemaDialect::from_raw(value.schema_dialect),
             strict: Presence::from_raw(value.strict),
             legacy: value.legacy,
         }
@@ -388,6 +402,7 @@ pub struct OutputConstraint<'a> {
     pub value: Json<'a>,
     pub mode: OutputMode,
     pub schema: Presence<Json<'a>>,
+    pub schema_dialect: SchemaDialect,
     pub name: Presence<Text<'a>>,
     pub description: Presence<Text<'a>>,
     pub strict: Presence<bool>,
@@ -399,6 +414,7 @@ impl<'a> OutputConstraint<'a> {
             value: self.value.0,
             mode: self.mode.raw(),
             schema: json_raw(self.schema),
+            schema_dialect: self.schema_dialect.raw(),
             name: text_raw(self.name),
             description: text_raw(self.description),
             strict: self.strict.into_raw(),
@@ -410,6 +426,7 @@ impl<'a> OutputConstraint<'a> {
             value: Json(v.value),
             mode: OutputMode::from_raw(v.mode),
             schema: json_view(v.schema),
+            schema_dialect: SchemaDialect::from_raw(v.schema_dialect),
             name: text_view(v.name),
             description: text_view(v.description),
             strict: Presence::from_raw(v.strict),
@@ -875,6 +892,18 @@ impl<'a, 's> Request<'a, 's> {
         refresh_message(&mut self.records[..self.used], parent);
         Ok(())
     }
+    pub fn set_block_signature(
+        &mut self,
+        message: usize,
+        block: usize,
+        signature: Presence<ProviderSignature<'a>>,
+    ) -> Result<(), Error> {
+        let index = locate_block(&self.records[..self.used], message, block)?;
+        if let ir::Record::Block(ref mut slot) = self.records[index] {
+            slot.signature = signature.map(ProviderSignature::raw).into_raw();
+        }
+        Ok(())
+    }
     pub fn set_message_role(&mut self, message: usize, role: Role) -> Result<(), Error> {
         let index = locate_message(&self.records[..self.used], message)?;
         let end = match self.records[index] {
@@ -1278,6 +1307,7 @@ fn append_message<'a>(
         let at = start + 1 + offset;
         records[at] = ir::Record::Block(ir::Block {
             content: content.raw(),
+            signature: ir::Presence::Missing,
             extensions: ir::Span::EMPTY,
             end: at + 1,
             item_id: ir::Presence::Missing,
@@ -1483,6 +1513,27 @@ impl<'s, 'a> Iterator for Blocks<'s, 'a> {
         None
     }
 }
+/// Provider-bound metadata that must not move silently across wire formats.
+#[derive(Clone, Copy, Debug)]
+pub struct ProviderSignature<'a> {
+    pub source: Format,
+    pub value: Text<'a>,
+}
+impl<'a> ProviderSignature<'a> {
+    fn raw(self) -> ir::ProviderSignature<'a> {
+        ir::ProviderSignature {
+            source: self.source.raw(),
+            value: self.value.0,
+        }
+    }
+    fn from_raw(value: ir::ProviderSignature<'a>) -> Self {
+        Self {
+            source: Format::from_raw(value.source),
+            value: Text(value.value),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct BlockView<'s, 'a> {
     records: &'s [ir::Record<'a>],
@@ -1491,6 +1542,9 @@ pub struct BlockView<'s, 'a> {
     ordinal: usize,
 }
 impl<'s, 'a> BlockView<'s, 'a> {
+    pub fn signature(self) -> Presence<ProviderSignature<'a>> {
+        Presence::from_raw(self.value.signature).map(ProviderSignature::from_raw)
+    }
     pub fn content(self) -> Content<'a> {
         Content::from_raw(self.value.content)
     }
@@ -1854,6 +1908,25 @@ impl<'a, 's> Response<'a, 's> {
             });
         if let Some(parent) = parent {
             refresh_message(&mut self.records[..self.used], parent);
+        }
+        Ok(())
+    }
+    pub fn set_block_signature(
+        &mut self,
+        choice: u64,
+        block: usize,
+        signature: Presence<ProviderSignature<'a>>,
+    ) -> Result<(), Error> {
+        let index = self
+            .choices()
+            .find(|c| c.index() == choice)
+            .ok_or_else(|| Error::invalid("choice index", "unknown candidate index"))?
+            .contents()
+            .nth(block)
+            .map(|b| b.at)
+            .ok_or_else(|| Error::invalid("content", "content ordinal is out of range"))?;
+        if let ir::Record::Block(ref mut slot) = self.records[index] {
+            slot.signature = signature.map(ProviderSignature::raw).into_raw();
         }
         Ok(())
     }

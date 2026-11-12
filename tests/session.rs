@@ -490,17 +490,27 @@ fn encode(
     input: &[u8],
     allow_item_id_loss: bool,
 ) -> Result<(Vec<u8>, EventEncodingReport), Error> {
+    encode_formats(source.into(), target.into(), input, allow_item_id_loss)
+}
+
+fn encode_formats(
+    source: Format,
+    target: Format,
+    input: &[u8],
+    allow_item_id_loss: bool,
+) -> Result<(Vec<u8>, EventEncodingReport), Error> {
     let mut f = vec![0; 8192];
     let mut p = vec![0; 8192];
     let mut a = vec![0; 32768];
     let mut w = StreamWorkspace::<512, 96, 32>::new();
-    let mut session = Session::new(config(source), &mut f, &mut p, &mut a, &mut w).unwrap();
+    let mut session =
+        Session::new(SessionConfig::new(source), &mut f, &mut p, &mut a, &mut w).unwrap();
     session.prepare().unwrap();
     let mut pending = vec![0; 32768];
     let mut ea = vec![0; 32768];
     let mut scratch = vec![0; 8192];
     let mut ew = EncoderWorkspace::<512, 32>::new();
-    let mut ec = EventEncoderConfig::new(source.into(), target.into());
+    let mut ec = EventEncoderConfig::new(source, target);
     ec.context.created = Some(9);
     ec.context.initial_usage.input = Some(5);
     ec.context.target_item_id_prefix = Some("caller_");
@@ -1124,4 +1134,218 @@ fn reasoning_summary_is_typed_and_never_translated_into_a_thought() {
     let error = failure.unwrap();
     assert_eq!(error.kind, ErrorKind::Unsupported);
     assert_eq!(error.field, "stream reasoning thought/summary mapping");
+}
+
+fn visit_metadata(source: Protocol, input: &[u8], mut consume: impl FnMut(EventData<'_>)) {
+    let mut framing = [0; 8192];
+    let mut payload = [0; 8192];
+    let mut aggregate = [0; 16384];
+    let mut workspace = StreamWorkspace::<512, 64, 32>::new();
+    let mut session = Session::new(
+        config(source),
+        &mut framing,
+        &mut payload,
+        &mut aggregate,
+        &mut workspace,
+    )
+    .unwrap();
+    session.prepare().unwrap();
+    let step = session.step(input, true, |event| {
+        consume(event.data());
+        Control::Continue
+    });
+    assert_eq!(step.status, StepStatus::Done);
+}
+
+#[test]
+fn images_and_usage_metadata_survive_public_events_and_same_format_encoding() {
+    let input = concat!(
+        "data: {\"id\":\"r\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"images\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.com/a.png\"},\"extra\":\"kept\"}]}}]}\n\n",
+        "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: {\"choices\":[],\"usage\":{\"cache_creation_input_tokens\":3,\"prompt_tokens_details\":{\"cache_write_tokens\":3,\"cache_write_tokens_details\":{\"ttl_30m_tokens\":1,\"ttl_12h_tokens\":2}},\"cost\":1.25e-7}}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let mut images = false;
+    let mut usage = false;
+    visit_metadata(
+        Protocol::OpenAiChat,
+        input.as_bytes(),
+        |event| match event {
+            EventData::Images { choice, json } => {
+                assert_eq!(choice, 0);
+                assert!(
+                    std::str::from_utf8(json)
+                        .unwrap()
+                        .contains("\"extra\":\"kept\"")
+                );
+                images = true;
+            }
+            EventData::Usage(value) => {
+                assert_eq!(value.input, None);
+                assert_eq!(value.cache_write_30m, Some(1));
+                assert_eq!(value.cache_write_12h, Some(2));
+                assert_eq!(value.cost.unwrap().raw(), b"1.25e-7");
+                assert!(value.openai_cache_details);
+                usage = true;
+            }
+            _ => {}
+        },
+    );
+    assert!(images && usage);
+    let vendor = Format {
+        profile: Profile::OpenAiCompatible("openrouter"),
+        ..Protocol::OpenAiChat.into()
+    };
+    let (output, report) = encode_formats(vendor, vendor, input.as_bytes(), false).unwrap();
+    let output = std::str::from_utf8(&output).unwrap();
+    for retained in [
+        "\"extra\":\"kept\"",
+        "\"cost\":1.25e-7",
+        "\"ttl_12h_tokens\":2",
+    ] {
+        assert!(output.contains(retained), "{output}");
+    }
+    assert_eq!(report.dropped_extensions, 0);
+    assert_eq!(
+        encode(
+            Protocol::OpenAiChat,
+            Protocol::OpenAiResponses,
+            input.as_bytes(),
+            false
+        )
+        .unwrap_err()
+        .kind,
+        ErrorKind::Unsupported
+    );
+}
+
+#[test]
+fn grounding_and_continuation_remain_distinct_from_text_and_stop() {
+    let input = b"data: {\"responseId\":\"r\",\"modelVersion\":\"m\",\"usageMetadata\":{\"toolUsePromptTokenCount\":4},\"candidates\":[{\"index\":0,\"groundingMetadata\":{\"webSearchQueries\":[\"q\"]},\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"CONTINUATION\",\"continuationToken\":\"next\"}]}\n\n";
+    let mut seen = [false; 4];
+    visit_metadata(
+        Protocol::GeminiGenerateContent,
+        input,
+        |event| match event {
+            EventData::Grounding { choice, json } => {
+                assert_eq!(choice, 0);
+                assert_eq!(json, br#"{"webSearchQueries":["q"]}"#);
+                seen[0] = true;
+            }
+            EventData::Continuation { choice, token } => {
+                assert_eq!(choice, 0);
+                assert!(token.eq_str("next"));
+                seen[1] = true;
+            }
+            EventData::ChoiceEnded { reason, .. } => {
+                assert_eq!(reason, StopReason::Continuation);
+                seen[2] = true;
+            }
+            EventData::Usage(value) => {
+                assert_eq!(value.tool_use_prompt, Some(4));
+                seen[3] = true;
+            }
+            _ => {}
+        },
+    );
+    assert!(seen.into_iter().all(|value| value));
+    let (output, _) = encode(
+        Protocol::GeminiGenerateContent,
+        Protocol::GeminiGenerateContent,
+        input,
+        false,
+    )
+    .unwrap();
+    let output = std::str::from_utf8(&output).unwrap();
+    for retained in [
+        "webSearchQueries",
+        "\"continuationToken\":\"next\"",
+        "\"finishReason\":\"CONTINUATION\"",
+        "\"toolUsePromptTokenCount\":4",
+    ] {
+        assert!(output.contains(retained), "{output}");
+    }
+}
+
+#[test]
+fn signed_atomic_tools_keep_provider_binding_through_ready_and_encoding() {
+    let input = b"data: {\"responseId\":\"r\",\"modelVersion\":\"m\",\"candidates\":[{\"index\":0,\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"c\",\"name\":\"f\",\"args\":{}},\"thoughtSignature\":\"signed\"}]},\"finishReason\":\"STOP\"}]}\n\n";
+    let mut signed = false;
+    visit_metadata(Protocol::GeminiGenerateContent, input, |event| {
+        if let EventData::ToolReady(tool) = event {
+            let signature = tool.signature.unwrap();
+            assert_eq!(signature.source, Protocol::GeminiGenerateContent.into());
+            assert!(signature.value.eq_str("signed"));
+            signed = true;
+        }
+    });
+    assert!(signed);
+    let (output, _) = encode(
+        Protocol::GeminiGenerateContent,
+        Protocol::GeminiGenerateContent,
+        input,
+        false,
+    )
+    .unwrap();
+    assert!(
+        std::str::from_utf8(&output)
+            .unwrap()
+            .contains("\"thoughtSignature\":\"signed\"")
+    );
+    assert!(
+        encode(
+            Protocol::GeminiGenerateContent,
+            Protocol::OpenAiChat,
+            input,
+            false
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn stop_sequence_is_observed_without_becoming_a_text_delta() {
+    let input = ANTHROPIC.replace(
+        "\"stop_reason\":\"end_turn\"",
+        "\"stop_reason\":\"stop_sequence\",\"stop_sequence\":\"END\"",
+    );
+    let mut seen = false;
+    visit_metadata(Protocol::AnthropicMessages, input.as_bytes(), |event| {
+        if let EventData::StopSequence { sequence } = event {
+            assert!(sequence.eq_str("END"));
+            seen = true;
+        }
+    });
+    assert!(seen);
+}
+
+#[test]
+fn original_uncached_and_canonical_input_coexist_without_double_counting() {
+    let input = ANTHROPIC.replace(
+        "\"input_tokens\":5,\"output_tokens\":0",
+        "\"input_tokens\":5,\"cache_read_input_tokens\":2,\"cache_creation_input_tokens\":3,\"output_tokens\":0",
+    );
+    let mut seen = false;
+    visit_metadata(Protocol::AnthropicMessages, input.as_bytes(), |event| {
+        if let EventData::Usage(usage) = event {
+            assert_eq!(usage.uncached_input, Some(5));
+            assert_eq!(usage.input, Some(10));
+            seen = true;
+        }
+    });
+    assert!(seen);
+    let (output, _) = encode(
+        Protocol::AnthropicMessages,
+        Protocol::AnthropicMessages,
+        input.as_bytes(),
+        false,
+    )
+    .unwrap();
+    let output = std::str::from_utf8(&output).unwrap();
+    assert!(output.contains("\"input_tokens\":5"), "{output}");
+    assert!(!output.contains("\"input_tokens\":10"), "{output}");
+    assert!(
+        output.contains("\"cache_creation_input_tokens\":3"),
+        "{output}"
+    );
 }

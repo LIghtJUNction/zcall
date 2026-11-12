@@ -147,6 +147,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                     drop_extensions: !config.allowed_losses.is_empty(),
                 },
                 validate_snapshots: true,
+                allow_partial_usage: true,
             },
             wire::StreamBuffers {
                 framing: &mut [],
@@ -209,7 +210,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
             ));
         }
         let mut loss = EventLosses::default();
-        let mut parts = [None; 4];
+        let mut parts = [None; 5];
         match event.data {
             EventData::Started {
                 response_id,
@@ -287,7 +288,26 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
             EventData::Delta { text, .. } | EventData::SnapshotVerified { text, .. } => {
                 parts[0] = Some(text)
             }
-            EventData::Signature { signature, .. } => parts[0] = Some(signature),
+            EventData::Signature {
+                signature, origin, ..
+            } => {
+                parts[0] = Some(signature);
+                if original.b.present {
+                    let label = match origin.protocol {
+                        Protocol::AnthropicMessages => "anthropic",
+                        Protocol::GeminiGenerateContent => "gemini",
+                        Protocol::OpenAiChat => "chat",
+                        Protocol::OpenAiResponses => "responses",
+                        _ => {
+                            return StageStatus::Failed(Error::invalid(
+                                "signature provider",
+                                "unsupported origin protocol",
+                            ));
+                        }
+                    };
+                    parts[1] = Some(Text::new(label));
+                }
+            }
             EventData::ToolReady(tool) => {
                 parts[0] = Some(Text::new(tool.call_id));
                 parts[1] = Some(Text::new(tool.name));
@@ -297,6 +317,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                 };
                 parts[2] = Some(Text::new(arguments));
                 parts[3] = tool.item_id.map(Text::new);
+                parts[4] = tool.signature.map(|signature| signature.value);
                 if tool.item_id.is_some() {
                     if !self.config.allow_item_id_loss {
                         return StageStatus::Failed(Error::new(
@@ -308,6 +329,17 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                     loss.item_id = true;
                 }
             }
+            EventData::Images { json, .. } | EventData::Grounding { json, .. } => {
+                let value = match core::str::from_utf8(json) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return StageStatus::Failed(Error::invalid("metadata", "invalid UTF-8"));
+                    }
+                };
+                parts[0] = Some(Text::new(value));
+            }
+            EventData::Continuation { token, .. } => parts[0] = Some(token),
+            EventData::StopSequence { sequence } => parts[0] = Some(sequence),
             EventData::Usage(usage) => {
                 if let Err(error) = check_cache_write_permission(self.config, usage) {
                     return StageStatus::Failed(error);
@@ -358,7 +390,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                 replay: Replay::Unconsumed,
             });
         }
-        let mut spans = [wire::EventText::default(); 4];
+        let mut spans = [wire::EventText::default(); 5];
         let mut at = 0;
         for (index, text) in parts.into_iter().enumerate() {
             if let Some(text) = text {
@@ -379,6 +411,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
         raw.b = spans[1];
         raw.c = spans[2];
         raw.item_id = spans[3];
+        raw.signature = spans[4];
         let before = self.converter.report();
         match self.converter.stage_events(&self.scratch[..at], &[raw]) {
             Ok(()) => {
@@ -466,7 +499,8 @@ fn check_cache_write_permission(
     config: EventEncoderConfig<'_>,
     usage: StreamUsage,
 ) -> Result<(), Error> {
-    if config.target.protocol != Protocol::AnthropicMessages
+    if config.source != config.target
+        && config.target.protocol != Protocol::AnthropicMessages
         && usage.cache_write.is_some()
         && !config
             .allowed_losses

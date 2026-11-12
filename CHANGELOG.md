@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+- Target zconv 0.3.0 while retaining the v1 request, stream and tool lifecycle semantics.
+- Preserve schema dialects, provider-bound block/tool signatures, explicit ObjectOrText data, images, grounding, continuation and stop-sequence events.
+- Preserve cache lifetime/miss counters, tool-use prompt counts and exact wire cost numbers in StreamUsage. Unknown counters remain absent.
+- Retain raw uncached input alongside canonical inclusive input, and preserve explicit signature origin labels through public events and payload repacking.
+- Rust source migration: handle the new Data/EventData/StopReason variants and initialize the new public signature, schema_dialect and StreamUsage fields. Existing constructors keep explicit defaults. Continuation finishes an incomplete turn rather than a completed answer.
+- Accept repeated Responses identity envelopes only after checking existing identity/timestamp consistency.
+
 ## 0.1.3
 
 - Add borrowed `HttpEndpoint` configuration for six protocols, caller-buffered URL

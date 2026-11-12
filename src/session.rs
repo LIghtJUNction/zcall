@@ -52,6 +52,7 @@ pub enum StopReason {
     Stop,
     Length,
     ToolCalls,
+    Continuation,
     Safety,
     Other,
 }
@@ -88,9 +89,22 @@ impl StopReason {
             wire::FinishReason::Stop => Self::Stop,
             wire::FinishReason::Length => Self::Length,
             wire::FinishReason::ToolCalls => Self::ToolCalls,
+            wire::FinishReason::Continuation => Self::Continuation,
             wire::FinishReason::Safety => Self::Safety,
             wire::FinishReason::Other => Self::Other,
         }
+    }
+}
+
+/// Exact wire JSON number, with no floating-point rounding or monetary interpretation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StreamNumber(wire::WireNumber);
+impl StreamNumber {
+    pub fn parse(raw: &[u8]) -> Result<Self, Error> {
+        wire::WireNumber::parse(raw).map(Self).map_err(Error::from)
+    }
+    pub fn raw(&self) -> &[u8] {
+        self.0.raw()
     }
 }
 
@@ -99,30 +113,61 @@ impl StopReason {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StreamUsage {
     pub input: Option<u64>,
+    /// Original uncached source count; input remains the canonical inclusive total.
+    pub uncached_input: Option<u64>,
     pub output: Option<u64>,
     pub total: Option<u64>,
     pub cached: Option<u64>,
     pub cache_write: Option<u64>,
+    pub cache_write_5m: Option<u64>,
+    pub cache_write_1h: Option<u64>,
+    pub cache_write_30m: Option<u64>,
+    pub cache_write_12h: Option<u64>,
+    pub cache_miss: Option<u64>,
+    pub tool_use_prompt: Option<u64>,
+    pub cost: Option<StreamNumber>,
+    pub anthropic_cache_details: bool,
+    pub openai_cache_details: bool,
     pub reasoning: Option<u64>,
 }
 impl StreamUsage {
     fn from_raw(value: wire::Usage) -> Self {
         Self {
             input: value.input,
+            uncached_input: value.uncached_input,
             output: value.output,
             total: value.total,
             cached: value.cached,
             cache_write: value.cache_write,
+            cache_write_5m: value.cache_write_5m,
+            cache_write_1h: value.cache_write_1h,
+            cache_write_30m: value.cache_write_30m,
+            cache_write_12h: value.cache_write_12h,
+            cache_miss: value.cache_miss,
+            tool_use_prompt: value.tool_use_prompt,
+            cost: value.cost.map(StreamNumber),
+            anthropic_cache_details: value.anthropic_cache_details,
+            openai_cache_details: value.openai_cache_details,
             reasoning: value.reasoning,
         }
     }
     pub(crate) fn raw(self) -> wire::Usage {
         wire::Usage {
             input: self.input,
+            uncached_input: self.uncached_input,
             output: self.output,
             total: self.total,
             cached: self.cached,
             cache_write: self.cache_write,
+            cache_write_5m: self.cache_write_5m,
+            cache_write_1h: self.cache_write_1h,
+            cache_write_30m: self.cache_write_30m,
+            cache_write_12h: self.cache_write_12h,
+            cache_miss: self.cache_miss,
+            tool_use_prompt: self.tool_use_prompt,
+            cost: self.cost.map(|number| number.0),
+            anthropic_cache_details: self.anthropic_cache_details,
+            openai_cache_details: self.openai_cache_details,
             reasoning: self.reasoning,
             ..wire::Usage::default()
         }
@@ -224,6 +269,7 @@ pub struct ReadyTool<'a> {
     pub name: &'a str,
     pub item_id: Option<&'a str>,
     pub arguments: ToolArguments<'a>,
+    pub signature: Option<crate::document::ProviderSignature<'a>>,
 }
 
 /// Protocol-independent observations. Snapshots are explicitly distinct from deltas.
@@ -250,11 +296,30 @@ pub enum EventData<'a> {
     Signature {
         key: EventKey,
         signature: Text<'a>,
+        /// Signature origin; an absent wire label inherits the session source.
+        origin: Format,
     },
     BlockEnded {
         key: EventKey,
     },
     ToolReady(ReadyTool<'a>),
+    /// Adapter-validated image JSON, preserving the exact source object bytes.
+    Images {
+        choice: u32,
+        json: &'a [u8],
+    },
+    /// Adapter-validated grounding JSON, preserving unknown nested metadata.
+    Grounding {
+        choice: u32,
+        json: &'a [u8],
+    },
+    Continuation {
+        choice: u32,
+        token: Text<'a>,
+    },
+    StopSequence {
+        sequence: Text<'a>,
+    },
     Usage(StreamUsage),
     ChoiceEnded {
         choice: u32,
@@ -304,8 +369,8 @@ impl<'a> Event<'a> {
             | EventData::SnapshotVerified {
                 kind: BlockType::Reasoning,
                 ..
-            }
-            | EventData::Signature { .. } => Some(reasoning_semantics(self.source)),
+            } => Some(reasoning_semantics(self.source)),
+            EventData::Signature { origin, .. } => Some(reasoning_semantics(origin)),
             _ => None,
         }
     }
@@ -410,6 +475,7 @@ struct Item {
     id: Span,
     name: Span,
     item_id: Span,
+    signature: Span,
     head: usize,
     tail: usize,
     len: usize,
@@ -433,6 +499,7 @@ impl Item {
         id: Span::EMPTY,
         name: Span::EMPTY,
         item_id: Span::EMPTY,
+        signature: Span::EMPTY,
         head: NONE,
         tail: NONE,
         len: 0,
@@ -1144,6 +1211,14 @@ impl<'a, 'c> Session<'a, 'c> {
             } else {
                 None
             },
+            signature: if item.signature.present {
+                Some(crate::document::ProviderSignature {
+                    source: self.config.source,
+                    value: Text::new(utf8(item.signature)?),
+                })
+            } else {
+                None
+            },
             arguments: ToolArguments {
                 bytes: bytes(self.aggregate, item.complete),
             },
@@ -1198,8 +1273,33 @@ impl<'a, 'c> Session<'a, 'c> {
             wire::EventKind::Signature => EventData::Signature {
                 key,
                 signature: required_text(payload, raw.a)?,
+                origin: signature_origin(payload, raw.b, self.config.source)?,
             },
             wire::EventKind::BlockEnd => EventData::BlockEnded { key },
+            wire::EventKind::Images | wire::EventKind::Grounding => {
+                let json = required_text(payload, raw.a)?
+                    .as_str()
+                    .ok_or_else(|| Error::invalid("metadata", "expected unquoted JSON"))?
+                    .as_bytes();
+                if raw.kind == wire::EventKind::Images {
+                    EventData::Images {
+                        choice: key.choice,
+                        json,
+                    }
+                } else {
+                    EventData::Grounding {
+                        choice: key.choice,
+                        json,
+                    }
+                }
+            }
+            wire::EventKind::Continuation => EventData::Continuation {
+                choice: key.choice,
+                token: required_text(payload, raw.a)?,
+            },
+            wire::EventKind::StopSequence => EventData::StopSequence {
+                sequence: required_text(payload, raw.a)?,
+            },
             wire::EventKind::Usage => EventData::Usage(self.usage()),
             wire::EventKind::ChoiceEnd => EventData::ChoiceEnded {
                 choice: key.choice,
@@ -1286,6 +1386,7 @@ impl<'a, 'c> Engine<'a, 'c> {
                         self.config.source.protocol,
                         Protocol::OpenAiChat
                             | Protocol::OpenAiCompletions
+                            | Protocol::OpenAiResponses
                             | Protocol::GeminiGenerateContent
                     ) {
                         return Err(Error::lifecycle("response start", "duplicate start event"));
@@ -1367,11 +1468,10 @@ impl<'a, 'c> Engine<'a, 'c> {
             }
             wire::EventKind::Signature => {
                 required_text(payload, raw.a)?;
+                signature_origin(payload, raw.b, self.config.source)?;
                 let slot = self
-                    .lookup(key, Some(BlockType::Reasoning))
-                    .ok_or_else(|| {
-                        Error::lifecycle("signature", "reasoning block has not started")
-                    })?;
+                    .lookup(key, None)
+                    .ok_or_else(|| Error::lifecycle("signature", "block has not started"))?;
                 if self.items[slot].closed {
                     return Err(Error::lifecycle("signature", "reasoning block has ended"));
                 }
@@ -1398,8 +1498,20 @@ impl<'a, 'c> Engine<'a, 'c> {
                     ));
                 }
             }
+            wire::EventKind::Images
+            | wire::EventKind::Grounding
+            | wire::EventKind::Continuation
+            | wire::EventKind::StopSequence => {
+                required_text(payload, raw.a)?;
+            }
             wire::EventKind::Usage => {
-                self.state.usage.update(raw.usage).map_err(Error::from)?;
+                let mut usage = raw.usage;
+                if usage.input_basis == wire::InputCount::Uncached && usage.uncached_input.is_none()
+                {
+                    // Retain the declared source counter before canonicalizing it.
+                    usage.uncached_input = usage.input;
+                }
+                self.state.usage.update(usage).map_err(Error::from)?;
             }
             wire::EventKind::ChoiceEnd => {
                 if self.items[..self.state.item_count]
@@ -1431,7 +1543,10 @@ impl<'a, 'c> Engine<'a, 'c> {
                 for slot in 0..self.state.item_count {
                     if self.items[slot].key.choice == key.choice {
                         if !self.items[slot].closed
-                            && matches!(reason, StopReason::Length | StopReason::Safety)
+                            && matches!(
+                                reason,
+                                StopReason::Length | StopReason::Safety | StopReason::Continuation
+                            )
                         {
                             self.items[slot].incomplete = true;
                         }
@@ -1463,7 +1578,9 @@ impl<'a, 'c> Engine<'a, 'c> {
                                 item.incomplete
                                     || matches!(
                                         item.reason,
-                                        StopReason::Length | StopReason::Safety
+                                        StopReason::Length
+                                            | StopReason::Safety
+                                            | StopReason::Continuation
                                     )
                             })
                         {
@@ -1535,6 +1652,8 @@ impl<'a, 'c> Engine<'a, 'c> {
                     Some(name),
                     event_text(payload, raw.item_id)?,
                 )?;
+                self.items[slot].signature =
+                    self.store_optional(event_text(payload, raw.signature)?)?;
                 self.append(slot, args)?;
                 self.close(slot)?;
                 // This raw event itself carries the ready tool and is replayable.
@@ -1920,3 +2039,29 @@ fn text_equals(text: Text<'_>, expected: &[u8]) -> bool {
         zconv::ir::Text::Json(value) => value.bytes().eq(expected.iter().copied()),
     }
 }
+
+fn signature_origin(
+    payload: &[u8],
+    label: wire::EventText,
+    fallback: Format,
+) -> Result<Format, Error> {
+    let Some(name) = event_text(payload, label)? else {
+        return Ok(fallback);
+    };
+    let protocol = if name.eq_str("anthropic") {
+        Protocol::AnthropicMessages
+    } else if name.eq_str("gemini") {
+        Protocol::GeminiGenerateContent
+    } else if name.eq_str("chat") {
+        Protocol::OpenAiChat
+    } else if name.eq_str("responses") {
+        Protocol::OpenAiResponses
+    } else {
+        return Err(Error::invalid("signature provider", "unknown origin label"));
+    };
+    Ok(protocol.into())
+}
+
+#[cfg(test)]
+#[path = "../tests/unit/session_metadata.rs"]
+mod metadata_tests;
