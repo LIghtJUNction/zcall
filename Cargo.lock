@@ -4,13 +4,13 @@ version = 4
 
 [[package]]
 name = "zcall"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zconv",
 ]
 
 [[package]]
 name = "zconv"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e57ba714b29974daee2aacee58e9c43a1467e4eadb1afc9b8f2f2c9e64b4d6f4"
+checksum = "fb4c2c557b09be10a449b44d4034059837ab1980e8f89b830aedefcc9d0bbc15"
