@@ -35,13 +35,23 @@ conditions, not implicit defaults.
 | Context references/extensions | Source format/version/profile | No implicit provider reference substitution |
 | Item IDs versus call IDs | Separate view/event fields | Cross-target stream item identity changes require explicit policy and a report |
 | Complete output snapshots | SnapshotVerified | Validated; never appended a second time as delta content |
+| Structured tool results | Data::Content and BlockView::result_contents | Typed nested text/media; authored arrays use request-owned record storage |
+| Usage preferences and emission | StreamOptions, transport report, UsageEmission | Continuous mode emits only observed counters; unsupported intermediate-usage targets reject it |
+| Anthropic provider content | ProviderBlock, ProviderDelta, ProviderUsage | Same-format replay only; server tools never produce ToolReady |
+
+Resource APIs use the separate `zcall::api` namespace. Embeddings, Images,
+Batch JSONL/objects and Files metadata/multipart are borrowed wire codecs with
+caller-owned token and output storage. HTTP, polling, upload transport and batch
+execution remain application responsibilities.
 
 ## Explicitly outside the implemented adapter subset
 
 - Unknown protocols, unknown schema versions and unsupported profiles.
 - Raw Gemini streamed JSON arrays, NDJSON, WebSockets and network transports.
-- Streaming generation of image/audio/video blocks, grounding-specific event
-  families and server-executed tool event families without a verified mapping.
+- Streaming media and provider event families without a verified mapping.
+  Image resource SSE contracts, Gemini image/grounding metadata and Anthropic
+  server-tool/citation payloads have explicit codec support; unsupported
+  cross-provider semantic mappings still fail.
 - A vendor's entire JSON surface or undocumented compatibility fields.
 - Full JSON Schema validation, tool execution, tokenizer/model discovery and
   automatic context-window negotiation.

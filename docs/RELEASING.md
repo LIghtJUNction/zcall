@@ -8,7 +8,7 @@ an already-bumped version. Tag pushes do not publish again; successful
 publication creates the tag and GitHub release.
 
 For an explicit push-triggered release, first update the manifest and its
-lockfiles to the intended patch version, and commit a matching
+lockfiles to the intended version, and commit a matching
 `.github/release-request.json` with `crate`, `version`, `zconv` (including the
 exact `=` prefix) and `publish: true`. The workflow validates all four fields
 against the manifest and only runs for marker changes on `main`. Ordinary source
@@ -50,10 +50,10 @@ never cancelled by a newer release.
 
 ## Required dependency release
 
-The required zconv 0.2.2 is published, manifest-audited and resolved in the
-final lockfile. For a future dependency bump, publish the required zconv version
-before zcall. The dependency gate verifies the actual registry result and builds
-it; a Git tag alone does not satisfy the gate.
+zcall 0.3.0 requires exact zconv 0.4.0. Publish the required zconv version before
+zcall, then resolve both the root and standalone fuzz lockfiles from crates.io.
+The dependency gate verifies the actual registry result and builds it; a local
+path patch or Git tag alone does not satisfy the gate.
 
 Manual releases can bump the version and commit the verified registry manifest
 and all affected lockfiles before recording the release tag. Explicit marker
@@ -71,5 +71,6 @@ cargo package --locked --allow-dirty
 cargo publish --dry-run --locked --allow-dirty
 ```
 
-The first command fails if the required registry version is unavailable. It
-passed for the pinned zconv 0.2.2 during this upgrade's validation.
+The first command fails if the required registry version is unavailable. Local
+path-patch checks are development evidence only; final publication must pass
+the commands above against the published dependency.

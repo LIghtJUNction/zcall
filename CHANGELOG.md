@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.3.0 (unreleased)
+
+- Upgrade the exact zconv dependency to 0.4.0 while keeping the no_std, caller-storage and single-dependency contracts.
+- Expose resource codecs through `zcall::api`, including the JSON token workspace used by Embeddings, Images, Batch and Files.
+- Add typed nested tool-result views and transactional authoring. Nested media participates in capability checks, and record insertion keeps content spans valid.
+- Expose text verbosity and stream usage preferences through request views/builders and transport encode reports; add configurable continuous usage emission.
+- Distinguish raw reasoning from summaries in stream block types. Preserve Anthropic provider blocks, citation deltas and namespaced usage metadata; server-side tools never become executable local tools.
+- Rust source migration: handle `Data::Content`, `BlockType::ReasoningSummary` and the new provider `EventData` variants. Use `EventEncoderConfig::new` or initialize `usage_emission` explicitly.
+
+## 0.2.0
 
 - Target zconv 0.3.0 while retaining the v1 request, stream and tool lifecycle semantics.
 - Preserve schema dialects, provider-bound block/tool signatures, explicit ObjectOrText data, images, grounding, continuation and stop-sequence events.

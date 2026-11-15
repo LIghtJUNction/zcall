@@ -1,6 +1,22 @@
 # zconv integration audit
 
-## Current dependency: zconv 0.2.2 (2026-11-11)
+## Current dependency: zconv 0.4.0
+
+zcall 0.3.0 pins `zconv = "=0.4.0"` with all features disabled. The graph remains
+zcall → zconv. New resource codecs are explicit re-exports; the v1 conversation
+and session interfaces retain their private adaptation layer.
+
+The migration covers structured tool-result spans, text verbosity, streaming
+usage preferences, continuous usage emission, distinct reasoning summaries,
+and source-owned Anthropic event payloads. A server tool block is retained for
+replay and never enters the executable local-tool queue. Regression tests cover
+storage insertion, capacity rollback, usage normalization and provider replay.
+
+Release verification must resolve the published zconv 0.4.0 archive in both
+lockfiles and rerun the package/source audit. Temporary local path patches are
+not release evidence and must not enter the committed manifests or lockfiles.
+
+## Historical dependency: zconv 0.2.2 (2026-11-11)
 
 zcall 0.1.2 pins the published `zconv = "=0.2.2"` with all features disabled.
 The upstream annotated tag `v0.2.2` points to commit

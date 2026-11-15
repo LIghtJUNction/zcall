@@ -499,6 +499,22 @@ fn encode_formats(
     input: &[u8],
     allow_item_id_loss: bool,
 ) -> Result<(Vec<u8>, EventEncodingReport), Error> {
+    encode_formats_with_usage(
+        source,
+        target,
+        input,
+        allow_item_id_loss,
+        UsageEmission::Final,
+    )
+}
+
+fn encode_formats_with_usage(
+    source: Format,
+    target: Format,
+    input: &[u8],
+    allow_item_id_loss: bool,
+    usage_emission: UsageEmission,
+) -> Result<(Vec<u8>, EventEncodingReport), Error> {
     let mut f = vec![0; 8192];
     let mut p = vec![0; 8192];
     let mut a = vec![0; 32768];
@@ -511,6 +527,7 @@ fn encode_formats(
     let mut scratch = vec![0; 8192];
     let mut ew = EncoderWorkspace::<512, 32>::new();
     let mut ec = EventEncoderConfig::new(source, target);
+    ec.usage_emission = usage_emission;
     ec.context.created = Some(9);
     ec.context.initial_usage.input = Some(5);
     ec.context.target_item_id_prefix = Some("caller_");
@@ -1106,7 +1123,7 @@ fn reasoning_summary_is_typed_and_never_translated_into_a_thought() {
         Protocol::AnthropicMessages.into(),
     );
     ec.context.initial_usage.input = Some(0);
-    ec.allow_reasoning_loss = true;
+    ec.allow_reasoning_loss = false;
     let mut encoder = EventEncoder::new(ec, &mut o, &mut ea, &mut s, &mut ew).unwrap();
     let mut failure = None;
     let mut saw_summary = false;
@@ -1155,6 +1172,153 @@ fn visit_metadata(source: Protocol, input: &[u8], mut consume: impl FnMut(EventD
         Control::Continue
     });
     assert_eq!(step.status, StepStatus::Done);
+}
+
+#[test]
+fn provider_tool_streams_are_preserved_without_local_execution() {
+    let input = br#"data: {"type":"message_start","message":{"id":"r","model":"m","role":"assistant","content":[],"usage":{"input_tokens":5,"output_tokens":0,"service_tier":"standard"}}}
+
+data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"sealed"}}
+
+data: {"type":"content_block_stop","index":0}
+
+data: {"type":"content_block_start","index":1,"content_block":{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}}
+
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"test\"}"}}
+
+data: {"type":"content_block_stop","index":1}
+
+data: {"type":"content_block_start","index":2,"content_block":{"type":"web_search_tool_result","tool_use_id":"srv_1","content":[]}}
+
+data: {"type":"content_block_stop","index":2}
+
+data: {"type":"content_block_start","index":3,"content_block":{"type":"text","text":"answer","citations":[]}}
+
+data: {"type":"content_block_delta","index":3,"delta":{"type":"citations_delta","citation":{"type":"char_location","cited_text":"source","document_index":0,"start_char_index":0,"end_char_index":6}}}
+
+data: {"type":"content_block_stop","index":3}
+
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7,"server_tool_use":{"web_search_requests":1}}}
+
+data: {"type":"message_stop"}
+
+"#;
+    let mut blocks = 0;
+    let mut provider_usage = 0;
+    let mut citations = 0;
+    let mut tools = 0;
+    let mut outcome = None;
+    visit_metadata(Protocol::AnthropicMessages, input, |event| match event {
+        EventData::ProviderBlock { .. } => blocks += 1,
+        EventData::ProviderUsage { .. } => provider_usage += 1,
+        EventData::ProviderDelta { .. } => citations += 1,
+        EventData::ToolReady(_) => tools += 1,
+        EventData::Terminal(terminal) => outcome = Some(terminal.outcome),
+        _ => {}
+    });
+    assert_eq!((blocks, provider_usage, citations, tools), (4, 2, 1, 0));
+    assert_eq!(outcome, Some(TurnOutcome::Completed));
+    let (encoded, report) = encode(
+        Protocol::AnthropicMessages,
+        Protocol::AnthropicMessages,
+        input,
+        false,
+    )
+    .unwrap();
+    assert_eq!(report.dropped_extensions, 0);
+    let body = std::str::from_utf8(&encoded).unwrap();
+    for field in [
+        "redacted_thinking",
+        "server_tool_use",
+        "web_search_tool_result",
+        "citations_delta",
+        "service_tier",
+    ] {
+        assert!(body.contains(field), "{body}");
+    }
+    let error = encode(
+        Protocol::AnthropicMessages,
+        Protocol::OpenAiChat,
+        input,
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Unsupported);
+}
+
+#[test]
+fn continuous_usage_reaches_chat_chunks_without_counting_updates_twice() {
+    let input = br#"data: {"id":"r","model":"m","created":9,"choices":[{"index":0,"delta":{"content":"first"},"finish_reason":null}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}
+
+data: {"choices":[{"index":0,"delta":{"content":"second"},"finish_reason":null}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}
+
+data: [DONE]
+
+"#;
+    let (output, _) = encode_formats_with_usage(
+        Protocol::OpenAiChat.into(),
+        Protocol::OpenAiChat.into(),
+        input,
+        false,
+        UsageEmission::Continuous,
+    )
+    .unwrap();
+    let text = std::str::from_utf8(&output).unwrap();
+    assert!(
+        text.lines()
+            .any(|line| line.contains("second") && line.contains("\"usage\":{\"prompt_tokens\":5")),
+        "{text}"
+    );
+    assert!(text.matches("\"usage\":").count() > 1, "{text}");
+    let observed = observe(config(Protocol::OpenAiChat), &output, 1, true);
+    assert!(observed.error.is_none(), "{:?}", observed.error);
+    assert_eq!(observed.usage.output, Some(7));
+    assert_eq!(observed.usage.total, Some(12));
+}
+
+#[test]
+fn responses_raw_and_summary_index_zero_have_independent_lifecycles() {
+    let frames = [
+        r#"{"type":"response.created","response":{"id":"r","model":"m","created_at":9}}"#,
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"reason0","summary":[],"content":[]}}"#,
+        r#"{"type":"response.content_part.added","output_index":0,"content_index":0,"item_id":"reason0","part":{"type":"reasoning_text","text":""}}"#,
+        r#"{"type":"response.reasoning_text.delta","output_index":0,"content_index":0,"item_id":"reason0","delta":"raw thought"}"#,
+        r#"{"type":"response.reasoning_text.done","output_index":0,"content_index":0,"item_id":"reason0","text":"raw thought"}"#,
+        r#"{"type":"response.content_part.done","output_index":0,"content_index":0,"item_id":"reason0","part":{"type":"reasoning_text","text":"raw thought"}}"#,
+        r#"{"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"item_id":"reason0","part":{"type":"summary_text","text":""}}"#,
+        r#"{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"reason0","delta":"summary"}"#,
+        r#"{"type":"response.reasoning_summary_part.done","output_index":0,"summary_index":0,"item_id":"reason0","part":{"type":"summary_text","text":"summary"}}"#,
+        r#"{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reason0","content":[{"type":"reasoning_text","text":"raw thought"}],"summary":[{"type":"summary_text","text":"summary"}],"status":"completed"}}"#,
+        r#"{"type":"response.completed","response":{"id":"r","status":"completed","output":[{"type":"reasoning","id":"reason0","content":[{"type":"reasoning_text","text":"raw thought"}],"summary":[{"type":"summary_text","text":"summary"}],"status":"completed"}],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}}"#,
+    ];
+    let input = frames.map(|frame| format!("data: {frame}\n\n")).concat();
+    let mut kinds = Vec::new();
+    visit_metadata(Protocol::OpenAiResponses, input.as_bytes(), |event| {
+        if let EventData::Delta { kind, .. } = event {
+            kinds.push(kind);
+        }
+    });
+    assert_eq!(kinds, [BlockType::Reasoning, BlockType::ReasoningSummary]);
+    let (encoded, _) = encode(
+        Protocol::OpenAiResponses,
+        Protocol::OpenAiResponses,
+        input.as_bytes(),
+        true,
+    )
+    .unwrap();
+    let body = std::str::from_utf8(&encoded).unwrap();
+    assert!(body.contains("response.reasoning_text.delta"));
+    assert!(body.contains("response.reasoning_summary_text.delta"));
+    assert_eq!(
+        body.matches("event: response.output_item.added\n").count(),
+        1
+    );
+    assert_eq!(
+        body.matches("event: response.output_item.done\n").count(),
+        1
+    );
 }
 
 #[test]

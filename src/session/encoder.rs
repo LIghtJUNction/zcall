@@ -2,6 +2,22 @@
 
 use super::*;
 
+/// Select when the encoder emits counters actually observed from the source.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum UsageEmission {
+    #[default]
+    Final,
+    Continuous,
+}
+impl UsageEmission {
+    fn raw(self) -> wire::UsageEmission {
+        match self {
+            Self::Final => wire::UsageEmission::Final,
+            Self::Continuous => wire::UsageEmission::Continuous,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct EventContext<'a> {
     pub response_id: Option<&'a str>,
@@ -20,6 +36,9 @@ pub struct EventEncoderConfig<'a> {
     pub target: Format,
     pub limits: Limits,
     pub context: EventContext<'a>,
+    /// Continuous mode emits observed cumulative usage during streaming.
+    /// Targets without an intermediate usage representation reject this mode.
+    pub usage_emission: UsageEmission,
     pub allow_item_id_loss: bool,
     pub allow_timestamp_loss: bool,
     pub allow_reasoning_loss: bool,
@@ -32,6 +51,7 @@ impl EventEncoderConfig<'_> {
             target,
             limits: Limits::default(),
             context: EventContext::default(),
+            usage_emission: UsageEmission::Final,
             allow_item_id_loss: false,
             allow_timestamp_loss: false,
             allow_reasoning_loss: false,
@@ -148,6 +168,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                 },
                 validate_snapshots: true,
                 allow_partial_usage: true,
+                usage_emission: config.usage_emission.raw(),
             },
             wire::StreamBuffers {
                 framing: &mut [],
@@ -201,9 +222,9 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
         }
         if let Some(semantics) = event.reasoning_kind()
             && self.config.source != self.config.target
+            && !self.config.allow_reasoning_loss
             && accepts_reasoning(self.config.target)
-            && (semantics == StreamReasoningKind::Unspecified
-                || semantics != reasoning_semantics(self.config.target))
+            && !represents_reasoning(self.config.target, semantics)
         {
             return StageStatus::Failed(Error::unsupported(
                 "stream reasoning thought/summary mapping",
@@ -329,7 +350,11 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                     loss.item_id = true;
                 }
             }
-            EventData::Images { json, .. } | EventData::Grounding { json, .. } => {
+            EventData::Images { json, .. }
+            | EventData::Grounding { json, .. }
+            | EventData::ProviderBlock { json, .. }
+            | EventData::ProviderDelta { json, .. }
+            | EventData::ProviderUsage { json, .. } => {
                 let value = match core::str::from_utf8(json) {
                     Ok(value) => value,
                     Err(_) => {
@@ -519,10 +544,27 @@ fn accepts_reasoning(format: Format) -> bool {
     matches!(
         format.protocol,
         Protocol::AnthropicMessages
+            | Protocol::OpenAiResponses
             | Protocol::GeminiGenerateContent
             | Protocol::GeminiInteractions
     ) || (format.protocol == Protocol::OpenAiChat
         && matches!(format.profile, crate::common::Profile::OpenAiCompatible(_)))
+}
+
+fn represents_reasoning(format: Format, semantics: StreamReasoningKind) -> bool {
+    match semantics {
+        StreamReasoningKind::Thought => matches!(
+            format.protocol,
+            Protocol::AnthropicMessages | Protocol::OpenAiResponses | Protocol::OpenAiChat
+        ),
+        StreamReasoningKind::Summary => matches!(
+            format.protocol,
+            Protocol::OpenAiResponses
+                | Protocol::GeminiGenerateContent
+                | Protocol::GeminiInteractions
+        ),
+        StreamReasoningKind::Unspecified => false,
+    }
 }
 
 fn map_status(status: wire::Status) -> EncoderStatus {

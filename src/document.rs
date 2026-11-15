@@ -75,9 +75,21 @@ pub enum Data<'a> {
     Json(Json<'a>),
     JsonText(Text<'a>),
     Text(Text<'a>),
-    ObjectOrText { text: Text<'a>, key: Text<'a> },
+    ObjectOrText {
+        text: Text<'a>,
+        key: Text<'a>,
+    },
+    /// A decoded tool-result content array in the originating document.
+    /// Inspect it with `BlockView::result_contents`; append new arrays through
+    /// `Request::append_tool_result_contents` so record offsets stay local.
+    Content(ContentSpan),
     EmptyObject,
 }
+
+/// An opaque reference to a tool-result array in caller-owned record storage.
+#[derive(Clone, Copy, Debug)]
+pub struct ContentSpan(ir::Span);
+
 impl<'a> Data<'a> {
     fn raw(self) -> ir::Data<'a> {
         match self {
@@ -88,6 +100,7 @@ impl<'a> Data<'a> {
                 text: text.0,
                 key: key.0,
             },
+            Self::Content(span) => ir::Data::Content(span.0),
             Self::EmptyObject => ir::Data::EmptyObject,
         }
     }
@@ -100,6 +113,7 @@ impl<'a> Data<'a> {
                 text: Text(text),
                 key: Text(key),
             },
+            ir::Data::Content(span) => Self::Content(ContentSpan(span)),
             ir::Data::EmptyObject => Self::EmptyObject,
         }
     }
@@ -641,6 +655,34 @@ impl<'a> EncodeContext<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct StreamOptions {
+    pub include_usage: Presence<bool>,
+    pub continuous_usage_stats: Presence<bool>,
+}
+impl Default for StreamOptions {
+    fn default() -> Self {
+        Self {
+            include_usage: Presence::Missing,
+            continuous_usage_stats: Presence::Missing,
+        }
+    }
+}
+impl StreamOptions {
+    fn raw(self) -> ir::StreamOptions {
+        ir::StreamOptions {
+            include_usage: self.include_usage.into_raw(),
+            continuous_usage_stats: self.continuous_usage_stats.into_raw(),
+        }
+    }
+    fn from_raw(value: ir::StreamOptions) -> Self {
+        Self {
+            include_usage: Presence::from_raw(value.include_usage),
+            continuous_usage_stats: Presence::from_raw(value.continuous_usage_stats),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct EncodeReport<'a> {
     pub written: usize,
     pub dropped_extensions: usize,
@@ -650,6 +692,8 @@ pub struct EncodeReport<'a> {
     /// GEMINI model and streaming mode belong to the caller's transport URL.
     pub transport_model: Presence<Text<'a>>,
     pub transport_stream: Presence<bool>,
+    /// Preserve streaming preferences when the target carries them outside JSON.
+    pub transport_stream_options: Presence<StreamOptions>,
 }
 impl<'a> EncodeReport<'a> {
     fn from_raw(v: ir::EncodeReport<'a>) -> Self {
@@ -661,6 +705,8 @@ impl<'a> EncodeReport<'a> {
             dropped_metadata: v.dropped_metadata,
             transport_model: text_view(v.transport_model),
             transport_stream: Presence::from_raw(v.transport_stream),
+            transport_stream_options: Presence::from_raw(v.transport_stream_options)
+                .map(StreamOptions::from_raw),
         }
     }
     pub fn has_losses(self) -> bool {
@@ -782,6 +828,19 @@ impl<'a, 's> Request<'a, 's> {
     ) -> Result<(), Error> {
         parameter_set(&mut self.head.parameters, parameter, value)
     }
+    /// A text-length hint, independent from structured output constraints.
+    pub fn text_verbosity(&self) -> Presence<Text<'a>> {
+        text_view(self.head.parameters.text_verbosity)
+    }
+    pub fn set_text_verbosity(&mut self, value: Presence<Text<'a>>) {
+        self.head.parameters.text_verbosity = text_raw(value);
+    }
+    pub fn stream_options(&self) -> Presence<StreamOptions> {
+        Presence::from_raw(self.head.parameters.stream_options).map(StreamOptions::from_raw)
+    }
+    pub fn set_stream_options(&mut self, value: Presence<StreamOptions>) {
+        self.head.parameters.stream_options = value.map(StreamOptions::raw).into_raw();
+    }
     pub fn tool_choice(&self) -> ToolChoice<'a> {
         ToolChoice::from_raw(self.head.tool_choice)
     }
@@ -879,6 +938,7 @@ impl<'a, 's> Request<'a, 's> {
         block: usize,
         content: Content<'a>,
     ) -> Result<(), Error> {
+        validate_authored_content(content)?;
         let parent = locate_message(&self.records[..self.used], message)?;
         let role = match self.records[parent] {
             ir::Record::Message(v) => Role::from_raw(v.role),
@@ -886,6 +946,17 @@ impl<'a, 's> Request<'a, 's> {
         };
         validate_content(role, content)?;
         let index = locate_block(&self.records[..self.used], message, block)?;
+        if let ir::Record::Block(ir::Block {
+            content:
+                ir::Content::ToolResult {
+                    result: ir::Data::Content(span),
+                    ..
+                },
+            ..
+        }) = self.records[index]
+        {
+            self.records[span.start..span.end].fill(ir::Record::EMPTY);
+        }
         if let ir::Record::Block(ref mut slot) = self.records[index] {
             slot.content = content.raw();
         }
@@ -910,10 +981,12 @@ impl<'a, 's> Request<'a, 's> {
             ir::Record::Message(v) => v.end,
             _ => return Err(Error::invalid("message", "unknown message")),
         };
-        for record in &self.records[index + 1..end] {
-            if let ir::Record::Block(block) = record {
-                validate_content(role, Content::from_raw(block.content))?;
-            }
+        for block in (Blocks {
+            records: &self.records[..end],
+            at: index + 1,
+            ordinal: 0,
+        }) {
+            validate_content(role, block.content())?;
         }
         if let ir::Record::Message(ref mut slot) = self.records[index] {
             slot.role = role.raw();
@@ -1036,6 +1109,68 @@ impl<'a, 's> Request<'a, 's> {
                 is_error,
             }],
         )
+    }
+    /// Append a typed content array for an existing tool call. Child blocks are
+    /// copied into this request's storage; their span cannot refer to another
+    /// document. Capacity and child kinds are checked before changing history.
+    pub fn append_tool_result_contents(
+        &mut self,
+        id: &'a str,
+        contents: &[Content<'a>],
+        is_error: Presence<bool>,
+    ) -> Result<(), Error> {
+        let needed = self
+            .used
+            .checked_add(2)
+            .and_then(|n| n.checked_add(contents.len()))
+            .ok_or_else(|| Error::capacity(Resource::Ir, usize::MAX, false, Replay::Unconsumed))?;
+        if needed > self.records.len() {
+            return Err(Error::capacity(
+                Resource::Ir,
+                needed,
+                true,
+                Replay::Unconsumed,
+            ));
+        }
+        if contents.iter().any(|content| {
+            !matches!(
+                content,
+                Content::Text(_) | Content::Media(_) | Content::Refusal(_) | Content::Opaque { .. }
+            )
+        }) {
+            return Err(Error::invalid(
+                "tool result content",
+                "expected text, media, refusal, or provider content",
+            ));
+        }
+        let start = self.used;
+        self.append_tool_result(id, Data::EmptyObject, is_error)?;
+        let children = start + 2;
+        for (offset, content) in contents.iter().enumerate() {
+            let at = children + offset;
+            self.records[at] = ir::Record::Block(ir::Block {
+                content: content.raw(),
+                signature: ir::Presence::Missing,
+                extensions: ir::Span::EMPTY,
+                end: at + 1,
+                item_id: ir::Presence::Missing,
+                item_status: ir::Presence::Missing,
+            });
+        }
+        if let ir::Record::Block(ref mut parent) = self.records[start + 1] {
+            if let ir::Content::ToolResult { ref mut result, .. } = parent.content {
+                *result = ir::Data::Content(ir::Span {
+                    start: children,
+                    end: needed,
+                });
+            }
+            parent.end = needed;
+        }
+        if let ir::Record::Message(ref mut message) = self.records[start] {
+            message.end = needed;
+        }
+        self.used = needed;
+        Ok(())
     }
     /// Encode from the inspected/edited IR. No direct path bypasses the view.
     /// On failure discard output; capacity errors permit retrying this operation.
@@ -1205,6 +1340,14 @@ impl<'a, 's> RequestBuilder<'a, 's> {
         self.request.set_output_constraint(value);
         self
     }
+    pub fn text_verbosity(&mut self, value: Presence<Text<'a>>) -> &mut Self {
+        self.request.set_text_verbosity(value);
+        self
+    }
+    pub fn stream_options(&mut self, value: Presence<StreamOptions>) -> &mut Self {
+        self.request.set_stream_options(value);
+        self
+    }
     pub fn extension(&mut self, key: Json<'a>, value: Json<'a>) -> Result<&mut Self, Error> {
         self.request.add_extension(key, value)?;
         Ok(self)
@@ -1266,6 +1409,7 @@ fn append_message<'a>(
         ));
     }
     for &content in contents {
+        validate_authored_content(content)?;
         validate_content(options.role, content)?;
     }
     let start = *used;
@@ -1354,15 +1498,16 @@ fn locate_block(records: &[ir::Record<'_>], message: usize, block: usize) -> Res
         ir::Record::Message(v) => v.end,
         _ => return Err(Error::invalid("message", "invalid message")),
     };
-    records
-        .get(at + 1..end)
-        .ok_or_else(|| Error::invalid("message", "invalid message bounds"))?
-        .iter()
-        .enumerate()
-        .filter(|(_, v)| matches!(v, ir::Record::Block(_)))
-        .nth(block)
-        .map(|(i, _)| i + at + 1)
-        .ok_or_else(|| Error::invalid("content", "content ordinal is out of range"))
+    Blocks {
+        records: records
+            .get(..end)
+            .ok_or_else(|| Error::invalid("message", "invalid message bounds"))?,
+        at: at + 1,
+        ordinal: 0,
+    }
+    .nth(block)
+    .map(|view| view.at)
+    .ok_or_else(|| Error::invalid("content", "content ordinal is out of range"))
 }
 fn encode_error(value: zconv::Error) -> Error {
     match value {
@@ -1547,6 +1692,21 @@ impl<'s, 'a> BlockView<'s, 'a> {
     }
     pub fn content(self) -> Content<'a> {
         Content::from_raw(self.value.content)
+    }
+    /// Iterate the typed text/media parts of a structured tool result.
+    pub fn result_contents(self) -> Option<Blocks<'s, 'a>> {
+        let ir::Content::ToolResult {
+            result: ir::Data::Content(span),
+            ..
+        } = self.value.content
+        else {
+            return None;
+        };
+        Some(Blocks {
+            records: self.records.get(..span.end).unwrap_or(&[]),
+            at: span.start,
+            ordinal: 0,
+        })
     }
     pub fn ordinal(self) -> usize {
         self.ordinal
@@ -2324,6 +2484,7 @@ fn location_for(records: &[ir::Record<'_>], index: usize) -> Location {
     let mut tool = 0;
     let mut choice_end = records.len();
     let mut message_end = records.len();
+    let mut content_end = 0;
     for (at, record) in records.iter().enumerate().take(index + 1) {
         if at >= choice_end {
             result.choice = None;
@@ -2342,6 +2503,7 @@ fn location_for(records: &[ir::Record<'_>], index: usize) -> Location {
                 result.content = None;
                 message = 0;
                 content = 0;
+                content_end = 0;
             }
             ir::Record::Message(v) => {
                 result.message = Some(message);
@@ -2349,10 +2511,12 @@ fn location_for(records: &[ir::Record<'_>], index: usize) -> Location {
                 message_end = v.end;
                 result.content = None;
                 content = 0;
+                content_end = 0;
             }
-            ir::Record::Block(_) => {
+            ir::Record::Block(block) if at >= content_end => {
                 result.content = Some(content);
                 content += 1;
+                content_end = block.end;
             }
             ir::Record::Tool(_) => {
                 result.tool = Some(tool);
@@ -2398,7 +2562,7 @@ fn validate_content(role: Role, content: Content<'_>) -> Result<(), Error> {
                 Data::Json(value) if value.kind() != JsonKind::Object => {
                     return Err(Error::invalid("tool arguments", "expected a JSON object"));
                 }
-                Data::Text(_) => {
+                Data::Text(_) | Data::Content(_) => {
                     return Err(Error::invalid(
                         "tool arguments",
                         "ordinary text is not JSON arguments",
@@ -2423,11 +2587,29 @@ fn validate_content(role: Role, content: Content<'_>) -> Result<(), Error> {
     }
     Ok(())
 }
+fn validate_authored_content(content: Content<'_>) -> Result<(), Error> {
+    if matches!(
+        content,
+        Content::ToolResult {
+            result: Data::Content(_),
+            ..
+        } | Content::ToolCall {
+            arguments: Data::Content(_),
+            ..
+        }
+    ) {
+        return Err(Error::invalid(
+            "tool content",
+            "decoded content spans cannot be copied; append tool-result contents explicitly",
+        ));
+    }
+    Ok(())
+}
 fn refresh_message(records: &mut [ir::Record<'_>], at: usize) {
     let Some(ir::Record::Message(mut message)) = records.get(at).copied() else {
         return;
     };
-    let Some(contents) = records.get(at + 1..message.end) else {
+    let Some(contents) = records.get(..message.end) else {
         return;
     };
     let mut tool = false;
@@ -2435,17 +2617,19 @@ fn refresh_message(records: &mut [ir::Record<'_>], at: usize) {
     let mut refusal = false;
     let mut reasoning = false;
     let mut only_text = true;
-    for record in contents {
-        if let ir::Record::Block(block) = record {
-            match block.content {
-                ir::Content::ToolCall { legacy: false, .. } => tool = true,
-                ir::Content::ToolCall { legacy: true, .. } => legacy = true,
-                ir::Content::Refusal(_) => refusal = true,
-                ir::Content::Reasoning { .. } => reasoning = true,
-                _ => {}
-            }
-            only_text &= matches!(block.content, ir::Content::Text(_));
+    for block in (Blocks {
+        records: contents,
+        at: at + 1,
+        ordinal: 0,
+    }) {
+        match block.value.content {
+            ir::Content::ToolCall { legacy: false, .. } => tool = true,
+            ir::Content::ToolCall { legacy: true, .. } => legacy = true,
+            ir::Content::Refusal(_) => refusal = true,
+            ir::Content::Reasoning { .. } => reasoning = true,
+            _ => {}
         }
+        only_text &= matches!(block.value.content, ir::Content::Text(_));
     }
     fn marker(old: ir::Presence<()>, present: bool) -> ir::Presence<()> {
         if present {
@@ -2559,6 +2743,22 @@ fn insert_record<'a>(
                     v.end += 1;
                 }
                 shift_span(&mut v.extensions, at);
+                if let ir::Content::ToolResult {
+                    result: ir::Data::Content(ref mut span),
+                    ..
+                } = v.content
+                {
+                    if span.start == span.end {
+                        // Empty arrays still identify the boundary immediately
+                        // after their parent, unlike an absent extension span.
+                        if index > at && span.start >= at {
+                            span.start += 1;
+                            span.end += 1;
+                        }
+                    } else {
+                        shift_span(span, at);
+                    }
+                }
             }
             ir::Record::Choice(v) => {
                 if v.end > at {

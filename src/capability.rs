@@ -804,6 +804,22 @@ impl<'a> Request<'a, '_> {
                     Content::Refusal(_) => features.with(Feature::Refusal),
                     Content::Opaque { .. } => features.with(Feature::Extensions),
                 };
+                if let Some(contents) = block.result_contents() {
+                    for child in contents {
+                        features = match child.content() {
+                            Content::Text(_) => features.with(Feature::Text),
+                            Content::Media(media) => features.with(match media.kind {
+                                MediaKind::Image => Feature::Image,
+                                MediaKind::Audio => Feature::Audio,
+                                MediaKind::File => Feature::File,
+                                MediaKind::Video => Feature::Video,
+                            }),
+                            Content::Refusal(_) => features.with(Feature::Refusal),
+                            Content::Opaque { .. } => features.with(Feature::Extensions),
+                            _ => features,
+                        };
+                    }
+                }
             }
         }
         if !self.tool_presence().is_missing() || self.tools().next().is_some() {
@@ -853,6 +869,7 @@ impl<'a> Request<'a, '_> {
         ]
         .iter()
         .any(|&parameter| !self.parameter(parameter).is_missing())
+            || !self.text_verbosity().is_missing()
         {
             features = features.with(Feature::GenerationControls);
         }

@@ -32,7 +32,9 @@ pub enum BlockType {
     #[default]
     Text,
     Tool,
+    /// Raw reasoning text, distinct from a provider-generated summary.
     Reasoning,
+    ReasoningSummary,
     Refusal,
 }
 impl BlockType {
@@ -41,6 +43,7 @@ impl BlockType {
             wire::BlockKind::Text => Self::Text,
             wire::BlockKind::Tool => Self::Tool,
             wire::BlockKind::Reasoning => Self::Reasoning,
+            wire::BlockKind::ReasoningSummary => Self::ReasoningSummary,
             wire::BlockKind::Refusal => Self::Refusal,
         }
     }
@@ -68,11 +71,13 @@ pub enum StreamReasoningKind {
 
 pub(crate) fn reasoning_semantics(format: Format) -> StreamReasoningKind {
     match format.protocol {
-        Protocol::AnthropicMessages | Protocol::GeminiGenerateContent => {
+        Protocol::AnthropicMessages | Protocol::OpenAiResponses | Protocol::OpenAiChat => {
             StreamReasoningKind::Thought
         }
-        Protocol::OpenAiResponses | Protocol::GeminiInteractions => StreamReasoningKind::Summary,
-        Protocol::OpenAiChat | Protocol::OpenAiCompletions => StreamReasoningKind::Unspecified,
+        Protocol::GeminiGenerateContent | Protocol::GeminiInteractions => {
+            StreamReasoningKind::Summary
+        }
+        Protocol::OpenAiCompletions => StreamReasoningKind::Unspecified,
     }
 }
 
@@ -272,7 +277,28 @@ pub struct ReadyTool<'a> {
     pub signature: Option<crate::document::ProviderSignature<'a>>,
 }
 
-/// Protocol-independent observations. Snapshots are explicitly distinct from deltas.
+/// Anthropic usage metadata preserved with its source namespace.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AnthropicUsageField {
+    ServerToolUse,
+    ServiceTier,
+    InferenceGeo,
+    Iterations,
+}
+impl AnthropicUsageField {
+    fn from_index(index: u32) -> Result<Self, Error> {
+        match index {
+            0 => Ok(Self::ServerToolUse),
+            1 => Ok(Self::ServiceTier),
+            2 => Ok(Self::InferenceGeo),
+            3 => Ok(Self::Iterations),
+            _ => Err(Error::invalid("provider usage", "unknown field index")),
+        }
+    }
+}
+
+/// Normalized observations and explicit provider-owned payloads. Snapshots are
+/// distinct from deltas; server-side tool blocks never become `ToolReady`.
 #[derive(Clone, Copy, Debug)]
 pub enum EventData<'a> {
     Started {
@@ -311,6 +337,20 @@ pub enum EventData<'a> {
     /// Adapter-validated grounding JSON, preserving unknown nested metadata.
     Grounding {
         choice: u32,
+        json: &'a [u8],
+    },
+    /// A source-owned block, replayable only to the same provider format.
+    ProviderBlock {
+        key: EventKey,
+        kind: BlockType,
+        json: &'a [u8],
+    },
+    ProviderDelta {
+        key: EventKey,
+        json: &'a [u8],
+    },
+    ProviderUsage {
+        field: AnthropicUsageField,
         json: &'a [u8],
     },
     Continuation {
@@ -369,7 +409,19 @@ impl<'a> Event<'a> {
             | EventData::SnapshotVerified {
                 kind: BlockType::Reasoning,
                 ..
-            } => Some(reasoning_semantics(self.source)),
+            } => Some(StreamReasoningKind::Thought),
+            EventData::BlockStarted {
+                kind: BlockType::ReasoningSummary,
+                ..
+            }
+            | EventData::Delta {
+                kind: BlockType::ReasoningSummary,
+                ..
+            }
+            | EventData::SnapshotVerified {
+                kind: BlockType::ReasoningSummary,
+                ..
+            } => Some(StreamReasoningKind::Summary),
             EventData::Signature { origin, .. } => Some(reasoning_semantics(origin)),
             _ => None,
         }
@@ -483,6 +535,8 @@ struct Item {
     closed: bool,
     finished: bool,
     incomplete: bool,
+    provider_owned: bool,
+    provider_opaque: bool,
     ready_pending: bool,
     ready_emitted: bool,
     result_submitted: bool,
@@ -507,6 +561,8 @@ impl Item {
         closed: false,
         finished: false,
         incomplete: false,
+        provider_owned: false,
+        provider_opaque: false,
         ready_pending: false,
         ready_emitted: false,
         result_submitted: false,
@@ -1293,6 +1349,26 @@ impl<'a, 'c> Session<'a, 'c> {
                     }
                 }
             }
+            wire::EventKind::ProviderBlock
+            | wire::EventKind::ProviderDelta
+            | wire::EventKind::ProviderUsage => {
+                let json = required_text(payload, raw.a)?
+                    .as_str()
+                    .ok_or_else(|| Error::invalid("provider content", "expected unquoted JSON"))?
+                    .as_bytes();
+                match raw.kind {
+                    wire::EventKind::ProviderBlock => EventData::ProviderBlock {
+                        key,
+                        kind: BlockType::from_raw(raw.block),
+                        json,
+                    },
+                    wire::EventKind::ProviderDelta => EventData::ProviderDelta { key, json },
+                    _ => EventData::ProviderUsage {
+                        field: AnthropicUsageField::from_index(raw.key.index)?,
+                        json,
+                    },
+                }
+            }
             wire::EventKind::Continuation => EventData::Continuation {
                 choice: key.choice,
                 token: required_text(payload, raw.a)?,
@@ -1367,6 +1443,7 @@ impl<'a, 'c> Engine<'a, 'c> {
                 raw.kind,
                 wire::EventKind::Begin
                     | wire::EventKind::Usage
+                    | wire::EventKind::ProviderUsage
                     | wire::EventKind::Extension
                     | wire::EventKind::Failure
             )
@@ -1444,6 +1521,74 @@ impl<'a, 'c> Engine<'a, 'c> {
                 );
                 current = Some(self.open(key, kind, call_id, name, item_id)?);
             }
+            wire::EventKind::ProviderBlock => {
+                if self.config.source.protocol != Protocol::AnthropicMessages {
+                    return Err(Error::unsupported("provider-owned stream block"));
+                }
+                let value = required_text(payload, raw.a)?
+                    .as_str()
+                    .ok_or_else(|| Error::invalid("provider content", "expected unquoted JSON"))?;
+                let (opaque, initial) = {
+                    let document =
+                        json::parse(value.as_bytes(), self.tokens, self.config.limits.raw())
+                            .map_err(Error::from)?;
+                    let root = document.root();
+                    let tag = root
+                        .get("type")
+                        .and_then(json::Value::as_string)
+                        .ok_or_else(|| Error::invalid("provider content", "missing type"))?;
+                    let opaque = !tag.eq_str("text") && !tag.eq_str("server_tool_use");
+                    let initial = if kind == BlockType::Tool {
+                        root.get("input")
+                            .filter(|input| input.object().next().is_some())
+                            .map(|input| {
+                                core::str::from_utf8(input.raw())
+                                    .map(Text::new)
+                                    .map_err(|_| Error::invalid("provider input", "invalid UTF-8"))
+                            })
+                            .transpose()?
+                    } else if tag.eq_str("text") {
+                        root.get("text")
+                            .and_then(json::Value::as_string)
+                            .map(|text| Text(zconv::ir::Text::Json(text)))
+                    } else {
+                        None
+                    };
+                    (opaque, initial)
+                };
+                let phase = self.state.phase;
+                let slot = self.open(
+                    key,
+                    kind,
+                    event_text(payload, raw.b)?,
+                    event_text(payload, raw.c)?,
+                    None,
+                )?;
+                self.items[slot].provider_owned = true;
+                self.items[slot].provider_opaque = opaque;
+                self.state.phase = phase;
+                if let Some(initial) = initial {
+                    self.append(slot, initial)?;
+                }
+                current = Some(slot);
+            }
+            wire::EventKind::ProviderDelta => {
+                required_text(payload, raw.a)?;
+                let slot = self.lookup(key, Some(BlockType::Text)).ok_or_else(|| {
+                    Error::lifecycle("provider delta", "text block has not started")
+                })?;
+                if self.items[slot].closed || self.items[slot].provider_opaque {
+                    return Err(Error::lifecycle(
+                        "provider delta",
+                        "invalid or ended text block",
+                    ));
+                }
+                current = Some(slot);
+            }
+            wire::EventKind::ProviderUsage => {
+                required_text(payload, raw.a)?;
+                AnthropicUsageField::from_index(raw.key.index)?;
+            }
             wire::EventKind::Delta => {
                 let slot = match self.lookup(key, Some(kind)) {
                     Some(slot) => slot,
@@ -1459,7 +1604,10 @@ impl<'a, 'c> Engine<'a, 'c> {
                     }
                     None => return Err(Error::lifecycle("delta", "content block has not started")),
                 };
-                if self.items[slot].closed || self.items[slot].finished {
+                if self.items[slot].closed
+                    || self.items[slot].finished
+                    || self.items[slot].provider_opaque
+                {
                     return Err(Error::lifecycle("delta", "content block has ended"));
                 }
                 let text = required_text(payload, raw.a)?;
@@ -1588,7 +1736,7 @@ impl<'a, 'c> Engine<'a, 'c> {
                         } else if completion == wire::Completion::RequiresAction
                             || self.items[..self.state.item_count]
                                 .iter()
-                                .any(|item| item.kind == BlockType::Tool)
+                                .any(|item| item.kind == BlockType::Tool && !item.provider_owned)
                         {
                             TurnOutcome::WaitingTools
                         } else {
@@ -1761,8 +1909,14 @@ impl<'a, 'c> Engine<'a, 'c> {
         if matches!(
             self.config.source.protocol,
             Protocol::AnthropicMessages | Protocol::OpenAiResponses | Protocol::GeminiInteractions
-        ) && self.lookup(key, None).is_some()
-        {
+        ) && self.lookup(key, None).is_some_and(|slot| {
+            !(self.config.source.protocol == Protocol::OpenAiResponses
+                && matches!(kind, BlockType::Reasoning | BlockType::ReasoningSummary)
+                && matches!(
+                    self.items[slot].kind,
+                    BlockType::Reasoning | BlockType::ReasoningSummary
+                ))
+        }) {
             return Err(Error::lifecycle(
                 "block start",
                 "index reused by another block type",
@@ -1928,14 +2082,15 @@ impl<'a, 'c> Engine<'a, 'c> {
                 len: item.len,
                 present: true,
             };
-            self.items[slot].ready_pending = true;
+            self.items[slot].ready_pending = !self.items[slot].provider_owned;
         }
         self.items[slot].closed = true;
         if self.items[slot].kind == BlockType::Tool
+            && !self.items[slot].provider_owned
             && !self.items[slot].incomplete
             && !self.items[..self.state.item_count]
                 .iter()
-                .any(|item| item.kind == BlockType::Tool && !item.closed)
+                .any(|item| item.kind == BlockType::Tool && !item.provider_owned && !item.closed)
         {
             self.state.phase = CallState::ToolsReady;
         }

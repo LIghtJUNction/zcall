@@ -3,10 +3,8 @@
 A protocol-independent, caller-buffered AI call kernel for harness software.
 Rust 1.99.1 · Edition 2024 · `no_std` · `core` + `zconv` · no allocation · safe Rust · Sans-I/O.
 
-The repository pins [Rust 1.99.1](https://blog.rust-lang.org/releases/latest/),
-the latest stable release verified on 2026-11-11, as its development toolchain
-and declared minimum compiler. This raises zcall's former 1.74 minimum; the
-published zconv 0.2.2 dependency also declares Rust 1.99.1 as its minimum.
+The repository pins Rust 1.99.1 as its development toolchain and declared
+minimum compiler. The zconv 0.4.0 dependency uses the same minimum.
 
 `zcall::v1` gives a harness ordered requests, borrowed complete responses, unified
 stream events, explicit capabilities and a model-turn state machine. `zconv`
@@ -17,10 +15,10 @@ retries, scheduling, conversation history, tool execution and agent decisions.
 
 ```toml
 [dependencies]
-zcall = { version = "0.1.3", default-features = false }
+zcall = { version = "0.3.0", default-features = false }
 ```
 
-The library pins the published `zconv = "=0.2.2"` with default features disabled.
+The library pins `zconv = "=0.4.0"` with default features disabled.
 Its dependency graph contains only zcall and zconv. The release workflow checks
 the actual registry dependency, package, name ownership and version before
 publishing; it never ships a Git-only or path-only dependency.
@@ -63,7 +61,7 @@ unknown unless explicitly accepted, with a per-layer diagnostic report.
 
 ## Base URLs and protocol discovery
 
-`HttpEndpoint` and `Discovery` are included in zcall 0.1.3. Use the versioned
+`HttpEndpoint` and `Discovery` are included in zcall. Use the versioned
 crates.io dependency above for reproducible installs.
 
 Configure a known protocol with `HttpEndpoint`; it borrows the base URL and writes
@@ -134,6 +132,26 @@ Gemini GenerateContent and Gemini Interactions have real request, response and
 SSE event adapters. Support is limited to representable semantics and tested
 versions/profiles. Unknown protocols require an implemented adapter in zconv and
 an explicit zcall integration with conformance tests.
+
+`zcall::api` also exposes zconv's borrowed Embeddings, Images, Batch and Files
+codecs, endpoint paths and multipart writers. Use `zcall::api::json` for their
+caller-owned token workspace. These resource APIs remain separate from the six
+conversation protocols and do not send HTTP requests, upload files or execute
+batches.
+
+Structured tool results expose typed child blocks through
+`BlockView::result_contents`. Author arrays with
+`Request::append_tool_result_contents`; their record spans belong to the current
+document and cannot be copied to another request. `Request::stream_options`
+preserves usage preferences, including preferences returned in
+`EncodeReport::transport_stream_options` for targets without that JSON field.
+Set `EventEncoderConfig::usage_emission` to `UsageEmission::Continuous` when
+intermediate observed counters are required. Missing counters stay absent.
+
+`BlockType::Reasoning` carries raw reasoning and `ReasoningSummary` carries a
+summary. Anthropic source-owned blocks, citation deltas and usage metadata have
+explicit provider events. They can be replayed to the same format; server tool
+blocks never become local `ToolReady` work.
 
 Strict conversion is the default. Provider context references, file IDs, opaque
 signatures and extension values retain their source namespace. When a target
