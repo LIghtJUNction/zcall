@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0
 
 - Upgrade the exact zconv dependency to 0.4.0 while keeping the no_std, caller-storage and single-dependency contracts.
 - Expose resource codecs through `zcall::api`, including the JSON token workspace used by Embeddings, Images, Batch and Files.
