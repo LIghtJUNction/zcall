@@ -217,14 +217,15 @@ fn the_complete_server_uses_the_same_explicit_decoder_hook() {
         Some(Arc::new(decoder)),
     )
     .unwrap();
-    let address = match server
+    let address = server
         .listen(Listener::bind_tcp(("127.0.0.1", 0)).unwrap())
-        .unwrap()
-    {
-        Address::Tcp(address) => address,
-        #[cfg(unix)]
-        _ => unreachable!(),
+        .unwrap();
+    #[cfg(unix)]
+    let Address::Tcp(address) = address else {
+        unreachable!()
     };
+    #[cfg(not(unix))]
+    let Address::Tcp(address) = address;
     let mut client = TcpStream::connect(address).unwrap();
     client
         .set_read_timeout(Some(Duration::from_secs(2)))

@@ -58,11 +58,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "127.0.0.1",
         if check { 0 } else { 9416 },
     ))?)?;
-    let address = match address {
-        Address::Tcp(address) => address,
-        #[cfg(unix)]
-        _ => unreachable!(),
+    #[cfg(unix)]
+    let Address::Tcp(address) = address else {
+        unreachable!()
     };
+    #[cfg(not(unix))]
+    let Address::Tcp(address) = address;
     if check {
         let original = br#"{"model":"demo","messages":[{"role":"user","content":"hello"}]}"#;
         for protocol in [
