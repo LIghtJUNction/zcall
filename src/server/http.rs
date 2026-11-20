@@ -141,6 +141,34 @@ impl Default for RequestPolicy {
     }
 }
 
+/// Host-supplied bounded decompression. The host owns codec/window policy and
+/// must cooperate with this original request deadline; arbitrary callbacks
+/// cannot be preempted by the library. Unknown codings should return 415.
+pub trait BodyDecoder {
+    fn decode(
+        &self,
+        encoding: &str,
+        body: &[u8],
+        maximum: usize,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, HttpError>;
+}
+
+impl<F> BodyDecoder for F
+where
+    F: Fn(&str, &[u8], usize, Instant) -> Result<Vec<u8>, HttpError>,
+{
+    fn decode(
+        &self,
+        encoding: &str,
+        body: &[u8],
+        maximum: usize,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, HttpError> {
+        self(encoding, body, maximum, deadline)
+    }
+}
+
 pub fn read_request(
     socket: &mut dyn Connection,
     max_body: usize,
@@ -156,6 +184,18 @@ pub fn read_request_with_policy(
     max_body: usize,
     timeout: Duration,
     policy: RequestPolicy,
+) -> Result<Request, HttpError> {
+    read_request_with_decoder(socket, max_body, timeout, policy, None)
+}
+
+/// Bound wire bytes before a host decoder, then independently bound decoded
+/// bytes. A supplied decoder takes precedence over opaque encoded-body policy.
+pub fn read_request_with_decoder(
+    socket: &mut dyn Connection,
+    max_body: usize,
+    timeout: Duration,
+    policy: RequestPolicy,
+    decoder: Option<&dyn BodyDecoder>,
 ) -> Result<Request, HttpError> {
     let mut input = Input {
         socket,
@@ -228,13 +268,19 @@ pub fn read_request_with_policy(
         return Err(failure(417, "Expect is not supported"));
     }
     if request.header("upgrade").is_some() {
+        if websocket_fallback(&request, fields[2]) {
+            return Err(failure(
+                426,
+                "WebSocket upgrade is unavailable; retry using HTTP/SSE",
+            ));
+        }
         return Err(failure(400, "HTTP upgrades are not supported"));
     }
-    if !policy.allow_encoded_body
-        && request
-            .header("content-encoding")
-            .is_some_and(|value| !value.eq_ignore_ascii_case("identity"))
-    {
+    let encoding = request
+        .header("content-encoding")
+        .filter(|value| !value.eq_ignore_ascii_case("identity"))
+        .map(str::to_ascii_lowercase);
+    if encoding.is_some() && decoder.is_none() && !policy.allow_encoded_body {
         return Err(failure(415, "compressed request bodies are not supported"));
     }
     let length = request
@@ -300,7 +346,76 @@ pub fn read_request_with_policy(
             }
         }
     }
+    if let (Some(encoding), Some(decoder)) = (encoding, decoder) {
+        if input.socket.cancelled() {
+            return Err(failure(503, "gateway is stopping"));
+        }
+        if Instant::now() >= input.deadline {
+            return Err(failure(408, "request timeout"));
+        }
+        let decoded = decoder.decode(&encoding, &request.body, max_body, input.deadline)?;
+        if input.socket.cancelled() {
+            return Err(failure(503, "gateway is stopping"));
+        }
+        if Instant::now() >= input.deadline {
+            return Err(failure(408, "request timeout"));
+        }
+        if decoded.len() > max_body {
+            return Err(failure(413, "decoded request body exceeds max_body_bytes"));
+        }
+        request.body = decoded;
+        request.headers.retain(|(name, _)| {
+            !matches!(
+                name.as_str(),
+                "content-encoding" | "transfer-encoding" | "content-length"
+            )
+        });
+        request
+            .headers
+            .push(("content-length".into(), request.body.len().to_string()));
+    }
     Ok(request)
+}
+
+/// A valid WebSocket negotiation receives an explicit HTTP fallback signal.
+/// This does not implement WebSocket framing or authorize any application path.
+fn websocket_fallback(request: &Request, version: &str) -> bool {
+    if version != "HTTP/1.1"
+        || request.method != "GET"
+        || !request
+            .header("host")
+            .is_some_and(|value| !value.is_empty())
+        || !request
+            .header("upgrade")
+            .is_some_and(|value| value.eq_ignore_ascii_case("websocket"))
+        || request.header("sec-websocket-version") != Some("13")
+        || request.header("transfer-encoding").is_some()
+    {
+        return false;
+    }
+    if let Some(length) = request.header("content-length")
+        && (length.is_empty()
+            || !length.bytes().all(|byte| byte.is_ascii_digit())
+            || length.parse::<usize>() != Ok(0))
+    {
+        return false;
+    }
+    let mut upgrade = false;
+    for token in request.header("connection").unwrap_or("").split(',') {
+        let token = token.trim_matches([' ', '\t']);
+        if token.is_empty() || !token.bytes().all(token_char) {
+            return false;
+        }
+        upgrade |= token.eq_ignore_ascii_case("upgrade");
+    }
+    let key = request.header("sec-websocket-key").unwrap_or("").as_bytes();
+    upgrade
+        && key.len() == 24
+        && &key[22..] == b"=="
+        && key[..21].iter().all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'+' | b'/'))
+        // A 16-byte nonce leaves only two significant bits in its final
+        // base64 character; nonzero padding bits are not a canonical key.
+        && matches!(key[21], b'A' | b'Q' | b'g' | b'w')
 }
 
 fn token_char(byte: u8) -> bool {
@@ -334,17 +449,65 @@ pub fn respond(
     content_type: &str,
     body: &[u8],
 ) -> io::Result<()> {
-    validate_response_head(status, content_type, &[])?;
-    let header = format!(
-        "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n",
-        reason(status),
-        body.len()
-    );
-    write_socket(socket, header.as_bytes())?;
-    write_socket(socket, body)
+    respond_with_headers(socket, status, content_type, &[], body, false)
 }
 
-fn validate_response_head(
+/// Write a complete finite response, suppressing the body for HEAD.
+pub fn respond_with_headers(
+    socket: &mut dyn Connection,
+    status: u16,
+    content_type: &str,
+    extra: &[(String, String)],
+    body: &[u8],
+    head_only: bool,
+) -> io::Result<()> {
+    if matches!(status, 204 | 304) && !body.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "body forbidden for response status",
+        ));
+    }
+    respond_head(socket, status, content_type, extra, Some(body.len()))?;
+    if head_only || matches!(status, 204 | 304) {
+        Ok(())
+    } else {
+        write_socket(socket, body)
+    }
+}
+
+/// Write only response headers. The caller owns any subsequent framing.
+pub fn respond_head(
+    socket: &mut dyn Connection,
+    status: u16,
+    content_type: &str,
+    extra: &[(String, String)],
+    length: Option<usize>,
+) -> io::Result<()> {
+    validate_response_head(status, content_type, extra)?;
+    let mut header = format!(
+        "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\n",
+        reason(status)
+    );
+    if !matches!(status, 204 | 304)
+        && let Some(length) = length
+    {
+        use std::fmt::Write;
+        let _ = write!(header, "Content-Length: {length}\r\n");
+    }
+    header.push_str(
+        "Connection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n",
+    );
+    for (name, value) in extra {
+        header.push_str(name);
+        header.push_str(": ");
+        header.push_str(value);
+        header.push_str("\r\n");
+    }
+    header.push_str("\r\n");
+    write_socket(socket, header.as_bytes())
+}
+
+pub(crate) fn validate_response_head(
     status: u16,
     content_type: &str,
     extra: &[(String, String)],
@@ -472,6 +635,8 @@ pub fn reason(status: u16) -> &'static str {
         413 => "Content Too Large",
         415 => "Unsupported Media Type",
         417 => "Expectation Failed",
+        422 => "Unprocessable Content",
+        426 => "Upgrade Required",
         429 => "Too Many Requests",
         431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
@@ -698,6 +863,88 @@ mod tests {
         client.read_to_string(&mut response).unwrap();
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(response.ends_with("{}"));
+    }
+
+    const WEBSOCKET: &str = "GET /custom HTTP/1.1\r\nHost: localhost\r\nUpgrade: WebSocket\r\nConnection: keep-alive, Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+
+    #[test]
+    fn valid_websocket_negotiation_signals_http_fallback_without_route_policy() {
+        for request in [
+            WEBSOCKET.to_owned(),
+            WEBSOCKET.replace("/custom", "/v1/responses"),
+            WEBSOCKET.replace("\r\n\r\n", "\r\nContent-Length: 0\r\n\r\n"),
+        ] {
+            let mut connection = MemoryConnection::new(request.as_bytes());
+            let error = read_request(&mut connection, 64, Duration::from_secs(1))
+                .err()
+                .unwrap();
+            assert_eq!(error.status, 426);
+            assert!(error.message.contains("HTTP/SSE"));
+        }
+    }
+
+    #[test]
+    fn malformed_upgrades_and_existing_precedence_do_not_become_fallbacks() {
+        for request in [
+            WEBSOCKET.replace("GET ", "POST "),
+            WEBSOCKET.replace("HTTP/1.1", "HTTP/1.0"),
+            WEBSOCKET.replace("WebSocket", "h2c"),
+            WEBSOCKET.replace("keep-alive, Upgrade", "keep-alive"),
+            WEBSOCKET.replace("keep-alive, Upgrade", "Upgrade,invalid token"),
+            WEBSOCKET.replace("Version: 13", "Version: 12"),
+            WEBSOCKET.replace("ZQ==", "Zr=="),
+            WEBSOCKET.replace("ZQ==", "ZQ="),
+            WEBSOCKET.replace("\r\n\r\n", "\r\nContent-Length: 1\r\n\r\n"),
+            WEBSOCKET.replace(
+                "\r\n\r\n",
+                "\r\nContent-Length: 0\r\nTransfer-Encoding: chunked\r\n\r\n",
+            ),
+            WEBSOCKET.replace("\r\n\r\n", "\r\nUpgrade: websocket\r\n\r\n"),
+        ] {
+            let mut connection = MemoryConnection::new(request.as_bytes());
+            assert_eq!(
+                read_request(&mut connection, 64, Duration::from_secs(1))
+                    .err()
+                    .unwrap()
+                    .status,
+                400,
+                "{request}"
+            );
+        }
+        for (header, expected) in [
+            ("Origin: https://example.invalid", 403),
+            ("Expect: 100-continue", 417),
+        ] {
+            let request = WEBSOCKET.replace("\r\n\r\n", &format!("\r\n{header}\r\n\r\n"));
+            let mut connection = MemoryConnection::new(request.as_bytes());
+            assert_eq!(
+                read_request(&mut connection, 64, Duration::from_secs(1))
+                    .err()
+                    .unwrap()
+                    .status,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn tcp_websocket_negotiation_returns_426_and_closes_without_101() {
+        let (mut client, mut server) = tcp_pair();
+        let worker = std::thread::spawn(move || {
+            let error = read_request(&mut server, 1024, Duration::from_secs(2))
+                .err()
+                .unwrap();
+            assert_eq!(error.status, 426);
+            reject_and_close(&mut server, error.status, error.message);
+        });
+        client.write_all(WEBSOCKET.as_bytes()).unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 426 Upgrade Required\r\n"));
+        assert!(!response.contains("101 Switching"));
+        assert!(response.contains("HTTP/SSE"));
+        worker.join().unwrap();
     }
 
     fn tcp_pair() -> (std::net::TcpStream, Stream) {

@@ -289,6 +289,43 @@ version = "1.2.3"
             self.assertEqual(Path('comparison/Cargo.lock').read_text(), expected)
 
 
+    def test_prepare_versions_documents_and_restores_all_files_on_cargo_failure(self):
+        with tempfile.TemporaryDirectory() as directory, chdir(directory):
+            Path('Cargo.toml').write_text('[package]\nname = "zcall"\nversion = "1.2.3"\n')
+            Path('Cargo.lock').write_text(self.LOCK)
+            Path('README.md').write_text('zcall = { version = "1.2.3", features = ["server"] }\n')
+            Path('CHANGELOG.md').write_text('# Changelog\n\n## Unreleased\n\n- Existing measured change.\n\n## 1.2.3\n')
+            before = {path: path.read_bytes() for path in Path('.').iterdir()}
+            environment = {'BUMP': 'minor', 'VERSION': '', 'RELEASE_TAG': '', 'GITHUB_OUTPUT': ''}
+            def failed_cargo(*args, **kwargs):
+                Path('Cargo.lock').write_text('partially written lock')
+                raise subprocess.CalledProcessError(1, args[0])
+            with patch.dict(os.environ, environment), patch.object(release.subprocess, 'run', side_effect=failed_cargo):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    release.prepare()
+            self.assertEqual(before, {path: path.read_bytes() for path in before})
+            with patch.dict(os.environ, environment), patch.object(release.subprocess, 'run'), redirect_stdout(StringIO()):
+                release.prepare()
+            self.assertIn('version = "1.3.0"', Path('README.md').read_text())
+            self.assertIn('## 1.3.0\n\n- Existing measured change.', Path('CHANGELOG.md').read_text())
+            self.assertNotIn('## Unreleased', Path('CHANGELOG.md').read_text())
+            self.assertEqual(Path('Cargo.lock').read_bytes(), before[Path('Cargo.lock')])
+
+    def test_failed_prepare_removes_a_newly_created_lock(self):
+        with tempfile.TemporaryDirectory() as directory, chdir(directory):
+            manifest = '[package]\nname = "zcall"\nversion = "1.2.3"\n'
+            Path('Cargo.toml').write_text(manifest)
+            def failed_cargo(*args, **kwargs):
+                Path('Cargo.lock').write_text('partial')
+                raise subprocess.CalledProcessError(1, args[0])
+            environment = {'BUMP': 'patch', 'VERSION': '', 'RELEASE_TAG': '', 'GITHUB_OUTPUT': ''}
+            with patch.dict(os.environ, environment), patch.object(release.subprocess, 'run', side_effect=failed_cargo):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    release.prepare()
+            self.assertEqual(Path('Cargo.toml').read_text(), manifest)
+            self.assertFalse(Path('Cargo.lock').exists())
+
+
 class GitPreflightTests(unittest.TestCase):
     def git(self, *args):
         return subprocess.check_output(['git', *args], text=True, stderr=subprocess.PIPE).strip()
@@ -390,7 +427,7 @@ class RegistryTests(unittest.TestCase):
 
 
 class PublishedSourceTests(unittest.TestCase):
-    def run_record_step(self, projects, change_root):
+    def run_record_step(self, projects, change_root, documents=False):
         workflow = Path(__file__).resolve().parents[1] / '.github/workflows/release.yml'
         block = workflow.read_text().split('      - name: Record the published source\n', 1)[1]
         block = block.split('        run: |\n', 1)[1]
@@ -416,6 +453,9 @@ class PublishedSourceTests(unittest.TestCase):
                 for project in projects:
                     Path(project).mkdir()
                     Path(project, 'Cargo.lock').write_text(INDEPENDENT_LOCK)
+                if documents:
+                    Path('README.md').write_text('published usage remains recorded\n')
+                    Path('CHANGELOG.md').write_text('# Changelog\n\n## Unreleased\n')
                 git('add', '.')
                 git('commit', '-m', 'initial')
                 git('remote', 'add', 'origin', '../remote.git')
@@ -426,6 +466,10 @@ class PublishedSourceTests(unittest.TestCase):
                     Path('Cargo.toml').write_text(f'[package]\nname = "zcall"\nversion = "{version}"\n')
                     Path('Cargo.lock').write_text('version = 3\n\n' + REGISTRY_ZCONV)
                     expected.update(('Cargo.toml', 'Cargo.lock'))
+                if documents:
+                    Path('README.md').write_text('updated versioned usage\n')
+                    Path('CHANGELOG.md').write_text(f'# Changelog\n\n## {version}\n')
+                    expected.update(('README.md', 'CHANGELOG.md'))
                 for project in projects:
                     Path(project, 'Cargo.lock').write_text(INDEPENDENT_LOCK.replace(GIT_ZCONV, REGISTRY_ZCONV))
                 # Exercise the workflow's actual shell commands with local Git remotes.
@@ -447,6 +491,10 @@ class PublishedSourceTests(unittest.TestCase):
 
     def test_release_commit_succeeds_without_optional_projects(self):
         self.run_record_step((), change_root=True)
+
+
+    def test_release_commit_includes_prepared_changelog_and_usage(self):
+        self.run_record_step((), change_root=False, documents=True)
 
 
 if __name__ == '__main__':

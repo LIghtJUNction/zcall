@@ -5,6 +5,13 @@
 - Add opt-in `std`/`server` HTTP framing, strict conversation conversion and caller-key management while retaining the default no_std kernel and existing APIs.
 - Keep host-selected request policy, cancellation, error naming and private credential persistence separate from the reusable protocol primitives.
 
+- Add a bounded TCP/Unix listener and worker pool, explicit overload rejection, cooperative cancellation and shutdown reports, including tracked disposal of queued custom connections.
+- Add a host-routed gateway for six registered conversation protocols, strict JSON/SSE conversion, explicit upstream transport and extensible HTTP handlers.
+- Support safe Unix socket ownership and stable lock lifetimes without unsafe code; retain host responsibility for verified peer credentials and bounded stale-socket probes.
+- Return 426 for well-formed WebSocket negotiation so compatible clients can retry with HTTP/SSE; retain explicit rejection of malformed upgrades.
+- Add an optional host body decoder with wire/decoded limits and the original request deadline; default encoded-body rejection is unchanged.
+- Run formal and manually requested validation on five native targets plus no_std cross-target checks; keep ordinary iteration local.
+
 ## 0.3.0
 
 - Upgrade the exact zconv dependency to 0.4.0 while keeping the no_std, caller-storage and single-dependency contracts.

@@ -146,24 +146,49 @@ def synchronize_dependency_locks(version):
 
 def prepare():
     package = manifest()
-    chosen = select_version(package['version'], os.getenv('BUMP', 'none'),
+    current = package['version']
+    chosen = select_version(current, os.getenv('BUMP', 'none'),
                             os.getenv('VERSION', ''), os.getenv('RELEASE_TAG', ''))
-    if chosen != package['version']:
-        lock_updates = {}
+    paths = (Path('Cargo.toml'), Path('Cargo.lock'), *SIDECAR_LOCKS,
+             Path('README.md'), Path('CHANGELOG.md'))
+    originals = {path: path.read_bytes() if path.exists() else None for path in paths}
+    updates = {}
+    if chosen != current:
         for path in SIDECAR_LOCKS:
             if path.exists():
-                lock_updates[path] = update_path_lock(
-                    path.read_text(), package['name'], package['version'], chosen)
-        path = Path('Cargo.toml')
-        data, count = re.subn(r'(?m)^version = "' + re.escape(package['version']) + r'"$',
-                             f'version = "{chosen}"', path.read_text(), count=1)
+                updates[path] = update_path_lock(path.read_text(), package['name'], current, chosen)
+        data, count = re.subn(r'(?m)^version = "' + re.escape(current) + r'"$',
+                             f'version = "{chosen}"', Path('Cargo.toml').read_text(), count=1)
         if count != 1:
             raise ValueError('expected one package version field')
-        path.write_text(data)
-        # Generate with the declared MSRV; Cargo 1.99.1 supports the v4 lockfile.
-        subprocess.run(['cargo', '+1.99.1', 'generate-lockfile', '--offline'], check=True)
-        for path, data in lock_updates.items():
+        updates[Path('Cargo.toml')] = data
+    readme = Path('README.md')
+    if readme.exists():
+        updates[readme] = re.sub(
+            r'(zcall\s*=\s*\{\s*version\s*=\s*")' + re.escape(current) + '"',
+            lambda match: match[1] + chosen + '"', readme.read_text())
+    changelog = Path('CHANGELOG.md')
+    if changelog.exists():
+        data = changelog.read_text()
+        if re.search(r'(?m)^## Unreleased[ \t]*$', data):
+            data = re.sub(r'(?m)^## Unreleased[ \t]*$', f'## {chosen}', data, count=1)
+        elif chosen != current and not re.search(r'(?m)^## ' + re.escape(chosen) + '$', data):
+            data = data.replace('# Changelog\n', f'# Changelog\n\n## {chosen}\n', 1)
+        updates[changelog] = data
+    try:
+        if chosen != current:
+            Path('Cargo.toml').write_text(updates.pop(Path('Cargo.toml')))
+            # The exact dependency stays pinned; Cargo updates the local version.
+            subprocess.run(['cargo', '+1.99.1', 'generate-lockfile', '--offline'], check=True)
+        for path, data in updates.items():
             path.write_text(data)
+    except BaseException:
+        for path, previous in originals.items():
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(previous)
+        raise
     output = os.getenv('GITHUB_OUTPUT')
     if output:
         with open(output, 'a', encoding='utf-8') as file:
@@ -201,7 +226,7 @@ def git_preflight():
             raise ValueError('release tag points to a different commit')
         changes = subprocess.run(
             ['git', 'diff', '--quiet', 'HEAD', '--', 'Cargo.toml', 'Cargo.lock',
-             'comparison/Cargo.lock', 'fuzz/Cargo.lock'], check=False)
+             'comparison/Cargo.lock', 'fuzz/Cargo.lock', 'README.md', 'CHANGELOG.md'], check=False)
         if changes.returncode != 0:
             raise ValueError('release tag does not include the prepared version changes')
     print('Verified checkout, default branch and release tag are consistent')

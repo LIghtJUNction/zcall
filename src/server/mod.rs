@@ -12,8 +12,15 @@ use std::{
 };
 
 pub mod auth;
+pub mod gateway;
 pub mod http;
 pub mod protocol;
+pub mod runtime;
+pub mod transport;
+pub use runtime::{
+    Cancellation, Handler, HandlerError, PeerInspector, Response, Server, ServerConfig,
+    ServerStats, ShutdownReport, SubmitError, SubmitFailure,
+};
 
 /// A connection supplied by a server or embedding application.
 ///

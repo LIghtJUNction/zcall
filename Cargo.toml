@@ -23,6 +23,10 @@ default = []
 std = []
 server = ["std"]
 
+[[example]]
+name = "server"
+required-features = ["server"]
+
 [[bench]]
 name = "kernel"
 harness = false

@@ -1,8 +1,10 @@
 # Release procedure
 
 The Release workflow supports `none`, `patch`, `minor`, `major` and an explicit
-stable `MAJOR.MINOR.PATCH`. An explicit version requires `bump=none`. The first
-0.1.0 release also uses `none`. Manual releases must run from main.
+stable `MAJOR.MINOR.PATCH`. An explicit version requires `bump=none`. Manual
+releases must run from main. Version preparation updates the manifest, root and
+standalone lockfiles, README dependency example and changelog. If local lockfile
+preparation fails, the script restores the files it changed.
 Alternatively, a push to `main` modifying the release-request marker publishes
 an already-bumped version. Tag pushes do not publish again; successful
 publication creates the tag and GitHub release.
@@ -25,8 +27,13 @@ approval. Do not reuse an already published version.
 2. Validate version input without interpolating it into shell code. Reject
    malformed versions, decreases, conflicting bump/explicit inputs and tag
    mismatches. Preserve a v4 lockfile usable by the declared MSRV.
-3. Run MSRV and stable tests, documentation examples, formatting, Clippy,
-   dependency/source audit, release-script tests and verified Cargo packaging.
+3. Call the read-only Check workflow on Rust 1.99.1 for Linux x86_64/arm64,
+   macOS x86_64/arm64 and Windows x86_64. Each native job runs formatting, the
+   default no_std tests, all-feature unit/integration and documentation tests,
+   default/all-feature Clippy, release-mode tests and the local TCP example.
+   Separately check the default no_std library for WebAssembly, aarch64 Linux
+   and Cortex-M, audit both dependency graphs, test release preparation and
+   verify Cargo packaging.
 4. Check crates.io name ownership, repository identity and unpublished version.
    Repeat the registry check immediately before publication.
 5. Verify the checkout SHA and current main head. An old manual run cannot
@@ -74,3 +81,36 @@ cargo publish --dry-run --locked --allow-dirty
 The first command fails if the required registry version is unavailable. Local
 path-patch checks are development evidence only; final publication must pass
 the commands above against the published dependency.
+
+## Maintainer commands and local iteration
+
+Ordinary source pushes and pull requests do not start the native matrix. Run
+local checks while iterating, and request the complete matrix for a release or
+an explicit validation need. These workflows do not create a schedule.
+
+```sh
+# Local checks; all network traffic in the server tests stays on local fixtures.
+cargo fmt --all -- --check
+cargo test --locked --no-default-features
+cargo test --locked --all-features --all-targets
+cargo clippy --locked --all-features --all-targets -- -D warnings
+python3 scripts/check_package.py
+python3 -m unittest discover -s scripts -p 'test_*.py'
+
+# Manual validation without publication.
+gh workflow run ci.yml --repo LIghtJUNction/zcall --ref main -f extended=false
+# Include the existing Miri and bounded fuzz jobs when needed.
+gh workflow run ci.yml --repo LIghtJUNction/zcall --ref main -f extended=true
+
+# Release from main; choose patch, minor or major as appropriate.
+gh workflow run release.yml --repo LIghtJUNction/zcall --ref main \
+  -f bump=minor -f publish=true
+```
+
+The formal release invokes the five native jobs explicitly through
+`workflow_call`; it does not rely on a token-created tag starting a second
+workflow. Registry publication still needs the existing `CARGO_REGISTRY_TOKEN`
+and any `crates-io` environment approval. A workflow file alone does not prove
+those credentials are configured. Failed publication must be inspected before
+retrying: a published crate version is immutable, and no existing release tag
+should be moved to recover a later step.

@@ -1,57 +1,106 @@
-name: CI
+name: Check
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Optional stable version to prepare in this checkout
+        type: string
+        required: false
+      extended:
+        description: Also run the existing Miri and fuzz checks
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ''
+      extended:
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: zcall-check-${{ github.run_id }}
+  cancel-in-progress: false
 env:
   CARGO_TERM_COLOR: always
 jobs:
-  test:
+  native:
+    name: native-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, '1.99.1']
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup toolchain install ${{ matrix.rust }} --profile minimal
-      - run: cargo +${{ matrix.rust }} test --all-targets --locked
-      - run: cargo +${{ matrix.rust }} test --release --locked
-      - run: cargo +${{ matrix.rust }} test --doc --locked
-  quality:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup component add rustfmt clippy
+      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+      - name: Prepare the verified release version
+        if: inputs.version != ''
+        env:
+          BUMP: none
+          VERSION: ${{ inputs.version }}
+        run: |
+          cargo fetch --locked
+          python3 scripts/release.py prepare
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked --no-default-features
+      - run: cargo test --locked --all-features --all-targets
+      - run: cargo test --locked --all-features --doc
+      - run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
+      - run: cargo clippy --locked --all-features --all-targets -- -D warnings
+      - run: cargo test --release --locked --all-features
+      - run: cargo run --release --locked --features server --example server -- --check
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - name: Prepare the verified release version
+        if: inputs.version != ''
+        env:
+          BUMP: none
+          VERSION: ${{ inputs.version }}
+        run: |
+          cargo fetch --locked
+          python3 scripts/release.py prepare
       - run: python3 scripts/check_package.py
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
-      - run: cargo bench --bench kernel --locked -- --quick
+      - run: cargo package --allow-dirty --locked
   cross:
-    runs-on: ubuntu-latest
+    name: no-std-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
         target: [wasm32-unknown-unknown, aarch64-unknown-linux-gnu, thumbv7em-none-eabi]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup target add ${{ matrix.target }}
+      - run: rustup toolchain install 1.99.1 --profile minimal --target ${{ matrix.target }}
       - run: cargo check --lib --no-default-features --target ${{ matrix.target }} --locked
   miri:
-    runs-on: ubuntu-latest
+    if: inputs.extended
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,7 +110,8 @@ jobs:
       - run: cargo +nightly miri setup
       - run: cargo +nightly miri test --test document --test session --test capability
   fuzz:
-    runs-on: ubuntu-latest
+    if: inputs.extended
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       CARGO_BUILD_JOBS: '1'

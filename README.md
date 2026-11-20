@@ -11,8 +11,10 @@ stream events, explicit capabilities and a model-turn state machine. `zconv`
 owns protocol parsing and encoding. The harness owns transport, authentication,
 retries, scheduling, conversation history, tool execution and agent decisions.
 
-The optional `server` feature adds bounded `std` HTTP, protocol conversion and
-caller-key primitives without another crate dependency. See
+The optional `server` feature adds a bounded `std` TCP/Unix HTTP server,
+strict JSON/SSE conversion, caller-key management and an extensible gateway.
+It adds no crate dependency: the host supplies upstream transport and optional
+request decompression. See
 [the server boundary and integration guide](docs/SERVER.md).
 
 ## Use
