@@ -179,7 +179,7 @@ def prepare():
         if chosen != current:
             Path('Cargo.toml').write_text(updates.pop(Path('Cargo.toml')))
             # The exact dependency stays pinned; Cargo updates the local version.
-            subprocess.run(['cargo', '+1.99.1', 'generate-lockfile', '--offline'], check=True)
+            subprocess.run(['cargo', '+1.99.1', 'update', '--workspace', '--offline'], check=True)
         for path, data in updates.items():
             path.write_text(data)
     except BaseException:
