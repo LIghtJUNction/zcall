@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README.md")]
 //! A caller-buffered, protocol-independent AI call kernel.
@@ -32,3 +32,7 @@ pub mod v1 {
     pub use crate::endpoint::*;
     pub use crate::session::*;
 }
+
+/// Optional synchronous HTTP, Unix socket, authentication and protocol service.
+#[cfg(feature = "server")]
+pub mod server;

@@ -20,6 +20,8 @@ zconv = { version = "=0.4.0", default-features = false }
 
 [features]
 default = []
+std = []
+server = ["std"]
 
 [[bench]]
 name = "kernel"

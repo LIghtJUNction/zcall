@@ -1,7 +1,7 @@
 # zcall
 
 A protocol-independent, caller-buffered AI call kernel for harness software.
-Rust 1.99.1 · Edition 2024 · `no_std` · `core` + `zconv` · no allocation · safe Rust · Sans-I/O.
+Default build: Rust 1.99.1 · Edition 2024 · `no_std` · `core` + `zconv` · no allocation · safe Rust · Sans-I/O.
 
 The repository pins Rust 1.99.1 as its development toolchain and declared
 minimum compiler. The zconv 0.4.0 dependency uses the same minimum.
@@ -10,6 +10,10 @@ minimum compiler. The zconv 0.4.0 dependency uses the same minimum.
 stream events, explicit capabilities and a model-turn state machine. `zconv`
 owns protocol parsing and encoding. The harness owns transport, authentication,
 retries, scheduling, conversation history, tool execution and agent decisions.
+
+The optional `server` feature adds bounded `std` HTTP, protocol conversion and
+caller-key primitives without another crate dependency. See
+[the server boundary and integration guide](docs/SERVER.md).
 
 ## Use
 

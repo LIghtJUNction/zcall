@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add opt-in `std`/`server` HTTP framing, strict conversation conversion and caller-key management while retaining the default no_std kernel and existing APIs.
+- Keep host-selected request policy, cancellation, error naming and private credential persistence separate from the reusable protocol primitives.
+
 ## 0.3.0
 
 - Upgrade the exact zconv dependency to 0.4.0 while keeping the no_std, caller-storage and single-dependency contracts.
