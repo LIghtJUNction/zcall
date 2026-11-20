@@ -21,7 +21,7 @@ request decompression. See
 
 ```toml
 [dependencies]
-zcall = { version = "0.3.0", default-features = false }
+zcall = { version = "0.4.0", default-features = false }
 ```
 
 The library pins `zconv = "=0.4.0"` with default features disabled.

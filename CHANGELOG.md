@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - Add opt-in `std`/`server` HTTP framing, strict conversation conversion and caller-key management while retaining the default no_std kernel and existing APIs.
 - Keep host-selected request policy, cancellation, error naming and private credential persistence separate from the reusable protocol primitives.
