@@ -4,7 +4,7 @@ A protocol-independent, caller-buffered AI call kernel for harness software.
 Default build: Rust 1.99.1 · Edition 2024 · `no_std` · `core` + `zconv` · no allocation · safe Rust · Sans-I/O.
 
 The repository pins Rust 1.99.1 as its development toolchain and declared
-minimum compiler. The zconv 0.4.0 dependency uses the same minimum.
+minimum compiler. The zconv 0.4.1 dependency uses the same minimum.
 
 `zcall::v1` gives a harness ordered requests, borrowed complete responses, unified
 stream events, explicit capabilities and a model-turn state machine. `zconv`
@@ -24,7 +24,7 @@ request decompression. See
 zcall = { version = "0.4.1", default-features = false }
 ```
 
-The library pins `zconv = "=0.4.0"` with default features disabled.
+Development follows the canonical zconv Git default branch, with its exact source recorded in Cargo.lock. The 0.4.1 registry package pins `zconv = "=0.4.1"`; both declarations disable default features.
 Its dependency graph contains only zcall and zconv. The release workflow checks
 the actual registry dependency, package, name ownership and version before
 publishing; it never ships a Git-only or path-only dependency.
