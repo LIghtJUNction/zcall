@@ -1,18 +1,23 @@
 """Version and registry gates. Input comes from environment, never shell interpolation."""
+from contextlib import chdir
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from urllib.parse import parse_qsl, urlsplit
 
 SEMVER = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z')
 MAX_COMPONENT = 2**32 - 1
 CRATES_IO_SOURCE = 'registry+https://github.com/rust-lang/crates.io-index'
 SIDECAR_LOCKS = (Path('comparison/Cargo.lock'), Path('fuzz/Cargo.lock'))
+RELEASE_FILES = (Path('Cargo.toml'), Path('Cargo.lock'), *SIDECAR_LOCKS,
+                 Path('README.md'), Path('CHANGELOG.md'))
 LOCK_PACKAGES = re.compile(r'(?ms)^\[\[package\]\]\n.*?(?=^\[|\Z)')
 
 
@@ -69,7 +74,7 @@ def request():
     expected = {
         'crate': package['package']['name'],
         'version': package['package']['version'],
-        'zconv': package['dependencies']['zconv']['version'],
+        'zconv': '=' + dependency_version(package),
         'publish': True,
     }
     if data != expected or data['publish'] is not True:
@@ -117,6 +122,90 @@ def unique_lock_package(data, name, location):
     return matches[0]
 
 
+def dependency_version(package):
+    """Bind Git development input to its committed lock, never a registry namesake."""
+    spec = package['dependencies']['zconv']
+    if not isinstance(spec, dict) or spec.get('package', 'zconv') != 'zconv':
+        raise ValueError('expected the zconv package')
+    if spec.get('default-features', True) is not False or spec.get('features'):
+        raise ValueError('zconv must disable default and additional features')
+    if 'path' in spec:
+        raise ValueError('local dependency paths are forbidden for publication')
+    if 'git' not in spec:
+        if any(key in spec for key in ('rev', 'branch', 'tag')):
+            raise ValueError('Git selectors require a Git dependency')
+        exact = spec.get('version', '')
+        if not isinstance(exact, str) or not exact.startswith('='):
+            raise ValueError('zconv must have an exact registry version')
+        version_tuple(exact[1:])
+        return exact[1:]
+
+    git = spec['git']
+    if git not in ('https://github.com/LIghtJUNction/zconv.git',
+                   'https://github.com/LIghtJUNction/zconv'):
+        raise ValueError('unexpected zconv Git repository')
+    committed = subprocess.check_output(['git', 'show', 'HEAD:Cargo.lock'], text=True)
+    _, locked = unique_lock_package(committed, 'zconv', 'committed Cargo.lock')
+    _, working = unique_lock_package(Path('Cargo.lock').read_text(), 'zconv', 'Cargo.lock')
+    if working != locked:
+        raise ValueError('working zconv lock differs from committed Cargo.lock')
+    source = locked.get('source', '')
+    if not isinstance(source, str) or not source.startswith('git+'):
+        raise ValueError('committed zconv package must use the declared Git source')
+    parsed = urlsplit(source[4:])
+    selectors = [(key, spec[key]) for key in ('rev', 'branch', 'tag') if key in spec]
+    if (len(selectors) > 1 or
+            parsed._replace(query='', fragment='').geturl() != git or
+            parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True) != selectors or
+            not re.fullmatch(r'[0-9a-f]{40}', parsed.fragment)):
+        raise ValueError('committed zconv Git identity does not match its declaration')
+    if 'rev' in spec and (not isinstance(spec['rev'], str) or
+                          not re.fullmatch(r'[0-9a-f]{7,40}', spec['rev']) or
+                          not parsed.fragment.startswith(spec['rev'])):
+        raise ValueError('committed zconv revision does not match its declared commit')
+    version = locked.get('version', '')
+    if not isinstance(version, str):
+        raise ValueError('committed zconv package version must be a string')
+    version_tuple(version)
+    if 'version' in spec and spec['version'] != '=' + version:
+        raise ValueError('declared zconv version differs from the committed Git package')
+    if locked.get('dependencies'):
+        raise ValueError('committed zconv unexpectedly has transitive dependencies')
+    return version
+
+
+def create_release_stage():
+    """Use a detached copy for registry projection; retain prepared Git development files."""
+    source = Path.cwd().resolve()
+    root = Path(subprocess.check_output(
+        ['git', 'rev-parse', '--show-toplevel'], text=True).strip()).resolve()
+    if source != root:
+        raise ValueError('release staging must start at the repository root')
+    stage = source / 'target/release-stage'
+    if stage.exists() or stage.is_symlink() or not stage.resolve().is_relative_to(source):
+        raise ValueError('release stage must be a new directory inside this checkout')
+    subprocess.run(['git', 'worktree', 'add', '--detach', str(stage), 'HEAD'], check=True)
+    # prepare() may have bumped only the local version and its documentation.
+    for path in RELEASE_FILES:
+        if path.exists():
+            shutil.copy2(path, stage / path)
+    return stage
+
+
+def registry_manifest(data, version):
+    """Project only the zconv declaration; retain its other TOML options."""
+    spec = tomllib.loads(data)['dependencies']['zconv']
+    projected = {key: value for key, value in spec.items()
+                 if key not in ('version', 'git', 'rev', 'branch', 'tag')}
+    projected = {'version': '=' + version, **projected}
+    inline = ', '.join(f'{key} = {json.dumps(value)}' for key, value in projected.items())
+    data, count = re.subn(r'(?m)^zconv\s*=\s*\{[^\n]*\}[ \t]*$',
+                         lambda _: 'zconv = { ' + inline + ' }', data)
+    if count != 1 or tomllib.loads(data)['dependencies']['zconv'] != projected:
+        raise ValueError('expected one single-line zconv dependency')
+    return data
+
+
 def synchronize_dependency_locks(version):
     """Copy only verified zconv resolution into existing independent projects."""
     main, package = unique_lock_package(Path('Cargo.lock').read_text(), 'zconv', 'Cargo.lock')
@@ -149,9 +238,7 @@ def prepare():
     current = package['version']
     chosen = select_version(current, os.getenv('BUMP', 'none'),
                             os.getenv('VERSION', ''), os.getenv('RELEASE_TAG', ''))
-    paths = (Path('Cargo.toml'), Path('Cargo.lock'), *SIDECAR_LOCKS,
-             Path('README.md'), Path('CHANGELOG.md'))
-    originals = {path: path.read_bytes() if path.exists() else None for path in paths}
+    originals = {path: path.read_bytes() if path.exists() else None for path in RELEASE_FILES}
     updates = {}
     if chosen != current:
         for path in SIDECAR_LOCKS:
@@ -264,53 +351,35 @@ def registry():
 
 def validate_dependency(package, release):
     """A Git checkout is a development input, never the published dependency."""
-    spec = package['dependencies']['zconv']
-    version = spec['version']
-    if not version.startswith('='):
-        raise ValueError('zconv must have an exact registry version')
-    version_tuple(version[1:])
-    if release['num'] != version[1:] or release.get('yanked', False):
+    version = dependency_version(package)
+    if release['num'] != version or release.get('yanked', False):
         raise ValueError('required zconv version is absent or yanked')
-    if spec.get('default-features', True) or spec.get('features'):
-        raise ValueError('zconv must disable default and additional features')
-    if spec.get('path'):
-        raise ValueError('local dependency paths are forbidden for publication')
-    return version[1:]
+    return version
 
 
 def dependency():
-    path = Path('Cargo.toml')
-    package = tomllib.loads(path.read_text())
-    spec = package['dependencies']['zconv']
-    version = spec['version'].removeprefix('=')
-    version_tuple(version)
+    package = tomllib.loads(Path('Cargo.toml').read_text())
+    version = dependency_version(package)
     # A 404 or network failure is a hard release gate; do not fall back to Git.
-    release = get_json(f'https://crates.io/api/v1/crates/zconv/{version}')['version']
-    validate_dependency(package, release)
-    data = path.read_text()
-    if 'git' in spec or 'rev' in spec:
-        lines = data.splitlines(keepends=True)
-        matched = 0
-        for i, line in enumerate(lines):
-            if re.match(r'^zconv\s*=\s*\{', line):
-                line = re.sub(r',\s*(?:git|rev)\s*=\s*"[^"\n]+"', '', line)
-                lines[i] = line
-                matched += 1
-        if matched != 1:
-            raise ValueError('expected one single-line zconv dependency')
-        path.write_text(''.join(lines))
-    subprocess.run(['cargo', '+1.99.1', 'generate-lockfile'], check=True)
-    resolved = json.loads(subprocess.check_output(
-        ['cargo', '+1.99.1', 'metadata', '--locked', '--format-version', '1'], text=True))
-    dependencies = [p for p in resolved['packages'] if p['name'] == 'zconv']
-    if len(dependencies) != 1 or dependencies[0]['version'] != version:
-        raise ValueError('unexpected resolved zconv version')
-    if dependencies[0]['source'] != CRATES_IO_SOURCE:
-        raise ValueError('zconv was not resolved from crates.io')
-    if dependencies[0]['dependencies']:
-        raise ValueError('zconv unexpectedly has transitive dependencies')
-    synchronize_dependency_locks(version)
-    print(f'crates.io dependency zconv {version} resolved without Git/path or transitive dependencies')
+    published = get_json(f'https://crates.io/api/v1/crates/zconv/{version}')['version']
+    validate_dependency(package, published)
+    stage = create_release_stage()
+    with chdir(stage):
+        path = Path('Cargo.toml')
+        path.write_text(registry_manifest(path.read_text(), version))
+        subprocess.run(['cargo', '+1.99.1', 'generate-lockfile'], check=True)
+        resolved = json.loads(subprocess.check_output(
+            ['cargo', '+1.99.1', 'metadata', '--locked', '--format-version', '1'], text=True))
+        dependencies = [p for p in resolved['packages'] if p['name'] == 'zconv']
+        if len(dependencies) != 1 or dependencies[0]['version'] != version:
+            raise ValueError('unexpected resolved zconv version')
+        if dependencies[0]['source'] != CRATES_IO_SOURCE:
+            raise ValueError('zconv was not resolved from crates.io')
+        if dependencies[0]['dependencies']:
+            raise ValueError('zconv unexpectedly has transitive dependencies')
+        synchronize_dependency_locks(version)
+    print(f'{stage}: crates.io zconv {version} resolved without Git/path or transitive dependencies')
+    return stage
 
 
 if __name__ == '__main__':

@@ -2,6 +2,7 @@ from contextlib import chdir, redirect_stdout
 from io import StringIO
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,7 +24,7 @@ checksum = "''' + 'a' * 64 + '''"
 GIT_ZCONV = '''[[package]]
 name = "zconv"
 version = "0.2.0"
-source = "git+https://github.com/LIghtJUNction/zconv?rev=abc#abc"
+source = "git+https://github.com/LIghtJUNction/zconv?rev=0123456789abcdef0123456789abcdef01234567#0123456789abcdef0123456789abcdef01234567"
 '''
 INDEPENDENT_LOCK = '''# Keep independent project pins and lockfile format.
 version = 4
@@ -76,7 +77,7 @@ name = "zcall"
 version = "0.1.0"
 
 [dependencies]
-zconv = { version = "=0.2.0", default-features = false, git = "https://github.com/LIghtJUNction/zconv", rev = "abc" }
+zconv = { version = "=0.2.0", default-features = false, git = "https://github.com/LIghtJUNction/zconv", rev = "0123456789abcdef0123456789abcdef01234567" }
 ''')
         Path('Cargo.lock').write_text('version = 3\n\n' + REGISTRY_ZCONV)
         for project in ('comparison', 'fuzz'):
@@ -135,27 +136,57 @@ zconv = { version = "=0.2.0", default-features = false, git = "https://github.co
                     self.assertEqual(path.read_text(), INDEPENDENT_LOCK)
 
     def resolve_dependency(self, package):
+        root = Path.cwd()
+        git_lock = 'version = 3\n\n' + GIT_ZCONV
+        Path('Cargo.lock').write_text(git_lock)
+        stage = root / 'target/release-stage'
+        if stage.exists():
+            shutil.rmtree(stage)
+
+        def create_stage():
+            stage.mkdir(parents=True, exist_ok=True)
+            for path in (Path('Cargo.toml'), Path('Cargo.lock'), *release.SIDECAR_LOCKS):
+                if path.exists():
+                    (stage / path).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(path, stage / path)
+            return stage
+
         def generate_lock(command, *, check):
             self.assertEqual(command, ['cargo', '+1.99.1', 'generate-lockfile'])
             self.assertTrue(check)
+            self.assertEqual(Path.cwd(), stage)
             Path('Cargo.lock').write_text('version = 3\n\n' + REGISTRY_ZCONV)
 
+        def output(command, *, text):
+            self.assertTrue(text)
+            if command == ['git', 'show', 'HEAD:Cargo.lock']:
+                return git_lock
+            self.assertEqual(command, ['cargo', '+1.99.1', 'metadata', '--locked', '--format-version', '1'])
+            self.assertEqual(Path.cwd(), stage)
+            return json.dumps({'packages': [package]})
+
         with patch.object(release, 'get_json', return_value={'version': {'num': '0.2.0', 'yanked': False}}), \
+                patch.object(release, 'create_release_stage', side_effect=create_stage), \
                 patch.object(release.subprocess, 'run', side_effect=generate_lock), \
-                patch.object(release.subprocess, 'check_output', return_value=json.dumps({'packages': [package]})), \
+                patch.object(release.subprocess, 'check_output', side_effect=output), \
                 redirect_stdout(StringIO()):
             release.dependency()
+        return stage
 
-    def test_dependency_gate_synchronizes_git_source_without_a_version_bump(self):
+    def test_dependency_gate_synchronizes_only_staged_locks_without_a_version_bump(self):
         Path('Cargo.lock').write_text('version = 3\n\n' + GIT_ZCONV)
-        self.resolve_dependency({'name': 'zconv', 'version': '0.2.0',
-                                 'source': release.CRATES_IO_SOURCE, 'dependencies': []})
-        manifest = tomllib.loads(Path('Cargo.toml').read_text())
+        before = {path: path.read_bytes() for path in
+                  (Path('Cargo.toml'), Path('Cargo.lock'), *release.SIDECAR_LOCKS)}
+        stage = self.resolve_dependency({'name': 'zconv', 'version': '0.2.0',
+                                        'source': release.CRATES_IO_SOURCE, 'dependencies': []})
+        manifest = tomllib.loads((stage / 'Cargo.toml').read_text())
         self.assertEqual(manifest['package']['version'], '0.1.0')
         self.assertNotIn('git', manifest['dependencies']['zconv'])
         self.assertNotIn('rev', manifest['dependencies']['zconv'])
+        self.assertEqual(before, {path: path.read_bytes() for path in before})
         for path in release.SIDECAR_LOCKS:
-            self.assertEqual(path.read_text(), INDEPENDENT_LOCK.replace(GIT_ZCONV, REGISTRY_ZCONV))
+            self.assertEqual((stage / path).read_text(),
+                             INDEPENDENT_LOCK.replace(GIT_ZCONV, REGISTRY_ZCONV))
 
     def test_failed_registry_resolution_does_not_touch_independent_locks(self):
         resolved = {'name': 'zconv', 'version': '0.2.0',
@@ -448,8 +479,14 @@ class PublishedSourceTests(unittest.TestCase):
                 git('init', '-b', 'main')
                 git('config', 'user.name', 'Release test')
                 git('config', 'user.email', 'test@example.invalid')
-                Path('Cargo.toml').write_text('[package]\nname = "zcall"\nversion = "1.2.3"\n')
-                Path('Cargo.lock').write_text('version = 3\n')
+                development = ('[package]\nname = "zcall"\nversion = "1.2.3"\n'
+                               '\n[dependencies]\nzconv = { default-features = false, '
+                               'git = "https://github.com/LIghtJUNction/zconv.git" }\n')
+                development_lock = ('version = 3\n\n[[package]]\nname = "zcall"\n'
+                                    'version = "1.2.3"\ndependencies = ["zconv"]\n\n' + GIT_ZCONV)
+                Path('Cargo.toml').write_text(development)
+                Path('Cargo.lock').write_text(development_lock)
+                Path('.gitignore').write_text('/target/\n')
                 for project in projects:
                     Path(project).mkdir()
                     Path(project, 'Cargo.lock').write_text(INDEPENDENT_LOCK)
@@ -463,15 +500,21 @@ class PublishedSourceTests(unittest.TestCase):
                 version = '1.2.4' if change_root else '1.2.3'
                 expected = {f'{project}/Cargo.lock' for project in projects}
                 if change_root:
-                    Path('Cargo.toml').write_text(f'[package]\nname = "zcall"\nversion = "{version}"\n')
-                    Path('Cargo.lock').write_text('version = 3\n\n' + REGISTRY_ZCONV)
+                    Path('Cargo.toml').write_text(development.replace('version = "1.2.3"', f'version = "{version}"'))
+                    Path('Cargo.lock').write_text(development_lock.replace('version = "1.2.3"', f'version = "{version}"', 1))
                     expected.update(('Cargo.toml', 'Cargo.lock'))
                 if documents:
                     Path('README.md').write_text('updated versioned usage\n')
                     Path('CHANGELOG.md').write_text(f'# Changelog\n\n## {version}\n')
                     expected.update(('README.md', 'CHANGELOG.md'))
                 for project in projects:
-                    Path(project, 'Cargo.lock').write_text(INDEPENDENT_LOCK.replace(GIT_ZCONV, REGISTRY_ZCONV))
+                    Path(project, 'Cargo.lock').write_text(INDEPENDENT_LOCK.replace(
+                        'name = "zcall"\nversion = "0.1.0"', f'name = "zcall"\nversion = "{version}"'))
+                # The publishing job also contains a registry worktree; it must not leak into main.
+                stage = Path('target/release-stage')
+                stage.mkdir(parents=True)
+                (stage / 'Cargo.toml').write_text('[dependencies]\nzconv = "=0.2.0"\n')
+                (stage / 'Cargo.lock').write_text('version = 3\n\n' + REGISTRY_ZCONV)
                 # Exercise the workflow's actual shell commands with local Git remotes.
                 # Only the final GitHub release API is replaced by a shell function.
                 subprocess.run(['bash', '-euo', 'pipefail', '-c', 'gh() { test "$1" = release; }\n' + script],
@@ -479,6 +522,13 @@ class PublishedSourceTests(unittest.TestCase):
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 self.assertEqual(set(git('diff', '--name-only', 'HEAD^', 'HEAD').splitlines()), expected)
                 self.assertEqual(git('status', '--porcelain'), '')
+                spec = tomllib.loads(Path('Cargo.toml').read_text())['dependencies']['zconv']
+                self.assertEqual(spec['git'], 'https://github.com/LIghtJUNction/zconv.git')
+                self.assertNotIn('version', spec)
+                self.assertIn(GIT_ZCONV, Path('Cargo.lock').read_text())
+                for project in projects:
+                    self.assertIn(GIT_ZCONV, Path(project, 'Cargo.lock').read_text())
+                self.assertEqual(git('ls-files', 'target/release-stage'), '')
                 self.assertEqual(git('-C', '../remote.git', 'rev-parse', 'refs/heads/main'), git('rev-parse', 'HEAD'))
                 self.assertEqual(git('-C', '../remote.git', 'rev-parse', f'refs/tags/v{version}^{{commit}}'),
                                  git('rev-parse', 'HEAD'))

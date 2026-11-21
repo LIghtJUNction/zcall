@@ -13,17 +13,22 @@ For an explicit push-triggered release, first update the manifest and its
 lockfiles to the intended version, and commit a matching
 `.github/release-request.json` with `crate`, `version`, `zconv` (including the
 exact `=` prefix) and `publish: true`. The workflow validates all four fields
-against the manifest and only runs for marker changes on `main`. Ordinary source
+against the manifest and the committed Git dependency in `Cargo.lock`, and only runs for marker changes on `main`. Ordinary source
 pushes do not publish. A protected `crates-io` environment may still require
 approval. Do not reuse an already published version.
 
 ## Gates
 
-1. Resolve the exact required zconv version from crates.io. A development Git
-   pin is removed only after the registry check, then the registry lockfile is
-   generated with Rust 1.99.1 and the full tests run against it. Existing standalone
-   fuzz/comparison locks receive the verified zconv registry entry while keeping
-   their other dependency versions and checksums.
+1. Read the unique zconv Git package from committed `Cargo.lock`. Its repository,
+   Git selector and full commit must match the development declaration; the
+   working lock's zconv entry must be unchanged. A same-name registry package,
+   missing or ambiguous entry, or mismatched legacy exact version is rejected.
+   Check that locked package version on crates.io, then create a detached
+   `target/release-stage` worktree. Only that stage receives an exact registry
+   selector and a registry lock generated with Rust 1.99.1. Verify the resolved
+   package's source, version, checksum and empty dependency closure. Existing
+   standalone fuzz/comparison locks in the stage receive only that verified
+   registry entry; their other pins and checksums remain intact.
 2. Validate version input without interpolating it into shell code. Reject
    malformed versions, decreases, conflicting bump/explicit inputs and tag
    mismatches. Preserve a v4 lockfile usable by the declared MSRV.
@@ -57,28 +62,39 @@ never cancelled by a newer release.
 
 ## Required dependency release
 
-zcall 0.3.0 requires exact zconv 0.4.0. Publish the required zconv version before
-zcall, then resolve both the root and standalone fuzz lockfiles from crates.io.
-The dependency gate verifies the actual registry result and builds it; a local
-path patch or Git tag alone does not satisfy the gate.
+Development keeps zconv as a Git-only dependency. For the current committed lock,
+the external dependency is exactly zconv 0.4.0; publish that version before zcall.
+The version comes from the matched Git package in the committed lock, not from
+an optional development `version` field or a registry package with the same name.
+Neither a local path patch nor a Git tag proves registry availability.
 
-Manual releases can bump the version and commit the verified registry manifest
-and all affected lockfiles before recording the release tag. Explicit marker
-releases must already have their version and registry lockfiles committed, so
-the resulting tag identifies exactly the source that passed verification.
+Version preparation still updates the development crate version, local root
+package entries and versioned documentation. Its Git dependency and Git lock
+entry stay intact. After successful publication the workflow records only those
+development changes on main, preserving the next automatic bump. The release tag
+identifies this Git development source; the uploaded crate and staged manifests
+record the external registry projection. Registry staging is never committed to
+main. Explicit marker releases must already commit their development version
+and Git locks.
+
+The five native jobs continue to test the locked development graph. Dependency
+graph auditing, Cargo packaging and publication use the isolated registry stage;
+both sets of gates are required. A staging directory is single-use: an existing
+directory is rejected instead of silently reusing an earlier projection.
 
 For local review:
 
 ```sh
-python3 scripts/release.py dependency
 BUMP=none python3 scripts/release.py prepare
+python3 scripts/release.py dependency
+cd target/release-stage
 python3 scripts/check_package.py
 cargo +1.99.1 test --all-targets --locked
 cargo package --locked --allow-dirty
 cargo publish --dry-run --locked --allow-dirty
 ```
 
-The first command fails if the required registry version is unavailable. Local
+The dependency command fails if the required registry version is unavailable. Local
 path-patch checks are development evidence only; final publication must pass
 the commands above against the published dependency.
 
