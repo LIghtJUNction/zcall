@@ -63,7 +63,7 @@ never cancelled by a newer release.
 ## Required dependency release
 
 Development keeps zconv as a Git-only dependency. For the current committed lock,
-the external dependency is exactly zconv 0.4.0; publish that version before zcall.
+the external dependency is exactly zconv 0.4.1; publish that version before zcall.
 The version comes from the matched Git package in the committed lock, not from
 an optional development `version` field or a registry package with the same name.
 Neither a local path patch nor a Git tag proves registry availability.

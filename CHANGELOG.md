@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Publish against the matching zconv 0.4.1 source package while retaining Git-only development inputs and the existing zcall runtime API.
+- Stage registry publication in an isolated worktree from the committed Git dependency lock; preserve the development manifests and cold-cache release gates.
+
 ## 0.4.0
 
 - Add opt-in `std`/`server` HTTP framing, strict conversation conversion and caller-key management while retaining the default no_std kernel and existing APIs.

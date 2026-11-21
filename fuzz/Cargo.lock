@@ -83,7 +83,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "zcall"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "zconv",
 ]
@@ -98,5 +98,5 @@ dependencies = [
 
 [[package]]
 name = "zconv"
-version = "0.4.0"
-source = "git+https://github.com/LIghtJUNction/zconv.git#0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1"
+version = "0.4.1"
+source = "git+https://github.com/LIghtJUNction/zconv.git#f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
