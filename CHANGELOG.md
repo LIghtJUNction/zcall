@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2 — 2026-11-22
+
+- Publish the current Git source through Project Z registry staging with an exact, independently rebuildable source receipt.
+- Preserve Git-only development dependencies and public runtime behavior.
+
 ## 0.4.1
 
 - Publish against the matching zconv 0.4.1 source package while retaining Git-only development inputs and the existing zcall runtime API.
