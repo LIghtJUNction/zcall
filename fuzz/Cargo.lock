@@ -10,9 +10,9 @@ checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
 
 [[package]]
 name = "cc"
-version = "1.11.1"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
+checksum = "02f0e023adb368345ce0ca6cdfc0f24a06554468d0e8503e14a0841de79bfa69"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -99,4 +99,4 @@ dependencies = [
 [[package]]
 name = "zconv"
 version = "0.4.1"
-source = "git+https://github.com/LIghtJUNction/zconv.git#f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
+source = "git+https://github.com/LIghtJUNction/zconv.git#11df5d00117ed87a7f5aebc5a2677f59fccff9b1"
