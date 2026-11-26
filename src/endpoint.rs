@@ -69,6 +69,53 @@ impl<'a> HttpEndpoint<'a> {
         Ok(Self { base_url, format })
     }
 
+    /// Build a validated URL for a non-streaming decision resource.
+    pub fn decision_url_into<'o>(
+        base_url: &str,
+        endpoint: zconv::api::Endpoint,
+        output: &'o mut [u8],
+    ) -> Result<&'o str, EndpointError> {
+        let operation = endpoint
+            .decision_operation()
+            .ok_or(EndpointError::InvalidUrl("expected a decision endpoint"))?;
+        let parts = UrlParts::parse(base_url)?;
+        let last = parts.path.rsplit('/').next().unwrap_or("");
+        if path_protocol(parts.path).is_some()
+            || (matches!(last, "systemone" | "decisions") && last != operation)
+        {
+            return Err(EndpointError::InvalidUrl(
+                "base ends in a different operation",
+            ));
+        }
+        let base = if parts.path.is_empty() {
+            "/v1"
+        } else {
+            parts.path
+        };
+        let render = |writer: &mut Writer<'_>| -> Result<(), EndpointError> {
+            writer.bytes(parts.origin.as_bytes())?;
+            writer.bytes(base.as_bytes())?;
+            if last != operation {
+                writer.bytes(b"/")?;
+                writer.bytes(operation.as_bytes())?;
+            }
+            if let Some(query) = parts.query {
+                writer.bytes(b"?")?;
+                writer.bytes(query.as_bytes())?;
+            }
+            Ok(())
+        };
+        let mut count = Writer::new(None);
+        render(&mut count)?;
+        let needed = count.written;
+        if output.len() < needed {
+            return Err(EndpointError::BufferTooSmall { needed });
+        }
+        render(&mut Writer::new(Some(&mut output[..needed])))?;
+        core::str::from_utf8(&output[..needed])
+            .map_err(|_| EndpointError::InvalidUrl("constructed URL is not UTF-8"))
+    }
+
     pub const fn base_url(self) -> &'a str {
         self.base_url
     }
