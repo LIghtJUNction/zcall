@@ -12,4 +12,4 @@ dependencies = [
 [[package]]
 name = "zconv"
 version = "0.4.1"
-source = "git+https://github.com/LIghtJUNction/zconv.git#d8c5bf7f2228bf5f4e54368d3d1cb9963c830223"
+source = "git+https://github.com/LIghtJUNction/zconv.git#a511ca2e66e0dd1bf458154a92d8ded878bb1547"
