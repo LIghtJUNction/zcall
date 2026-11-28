@@ -169,6 +169,7 @@ impl<'a, 'c> EventEncoder<'a, 'c> {
                 validate_snapshots: true,
                 allow_partial_usage: true,
                 usage_emission: config.usage_emission.raw(),
+                gemini_chat_history: false,
             },
             wire::StreamBuffers {
                 framing: &mut [],
