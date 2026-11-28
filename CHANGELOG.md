@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Keep stream encoding compatible with zconv 0.4.3 and its Gemini chat history configuration.
+- Include the optional bounded server runtime and its transport and gateway contracts.
+
 ## 0.4.2 — 2026-11-22
 
 - Publish the current Git source through Project Z registry staging with an exact, independently rebuildable source receipt.

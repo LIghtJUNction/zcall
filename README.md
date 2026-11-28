@@ -21,10 +21,10 @@ request decompression. See
 
 ```toml
 [dependencies]
-zcall = { version = "0.4.2", default-features = false }
+zcall = { version = "0.4.3", default-features = false }
 ```
 
-Development follows the canonical zconv Git default branch, with its exact source recorded in Cargo.lock. The 0.4.2 registry package pins `zconv = "=0.4.1"`; both declarations disable default features.
+Development follows the canonical zconv Git default branch, with its exact source recorded in Cargo.lock. The 0.4.3 registry package pins `zconv = "=0.4.3"`. Both declarations disable default features.
 Its dependency graph contains only zcall and zconv. The release workflow checks
 the actual registry dependency, package, name ownership and version before
 publishing; it never ships a Git-only or path-only dependency.
